@@ -54,11 +54,13 @@ Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by desi
 
 ## Pass-level re-verification
 
-A trigger may be up to `Max Setup Age` (default 2) trading days old. Every scan pass re-checks it on the last completed bar and the live quote:
+A trigger may be up to `Max Setup Age` (default 2) trading days old. Every scan pass re-checks it on the last completed bar (fully close-based, no live data):
 
-- **Live PPO intact**: a long whose PPO crossed back below its signal (or a short above) is stale and is not reported.
-- **Live distance**: the live price (bid/ask mid, fallback last completed close) must still be within 1.5 ATR of the structural extreme. Entry happens at the next open with a live price, so the distance is measured against the live quote, not the old close.
-- **Gates**: VIX / BTC / SPY regime must still allow the direction.
+- **PPO intact**: a long whose PPO crossed back below its signal (or a short above) on the last completed bar is stale and is not reported.
+- **Distance**: the close of the last completed bar must still be within 1.5 ATR of the structural extreme.
+- **Gates**: VIX close / BTC close / SPY close regime must still allow the direction.
+
+Whether the live price is still tradeable is not checked by the scanner; the trader checks it manually before entering.
 
 Alerts fire at most once per completed signal bar (identity = bar open time), so repeated passes never re-notify an unchanged setup.
 

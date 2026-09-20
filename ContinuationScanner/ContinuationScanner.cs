@@ -111,7 +111,7 @@ namespace cAlgo
         public int BenchmarkSmaPeriod { get; set; } = 50;
 
         // =========================================================================
-        // --- 4b. VIX Long Block (live VIX > threshold blocks longs; shorts unaffected) ---
+        // --- 4b. VIX Long Block (VIX close > threshold blocks longs; shorts unaffected) ---
         // =========================================================================
         [Parameter("Require VIX Long Block", Group = "4b. VIX Long Block", DefaultValue = true)]
         public bool RequireVixFilter { get; set; } = true;
@@ -201,7 +201,7 @@ namespace cAlgo
         private double _spySma50 = double.NaN;
         private string _spyDetail = "Pending first check";
 
-        // VIX long-block gate (recomputed once per scan pass). Blocks longs only when live VIX > threshold.
+        // VIX long-block gate (recomputed once per scan pass). Blocks longs only when the VIX close > threshold.
         private string _resolvedVixSymbol = "VIX";
         private bool _vixLongOk = true;
         private double _vixLive = double.NaN;
@@ -373,7 +373,7 @@ namespace cAlgo
             if (RequireBenchmarkFilter)
                 Print($"[ContinuationScanner] Benchmark gate ({_resolvedBenchmarkSymbol}): {gate.Detail} | Longs {(gate.LongOk ? "ALLOWED" : "BLOCKED")} | Shorts {(gate.ShortOk ? "ALLOWED" : "BLOCKED")}.");
 
-            // Refresh the VIX long-block gate once for this pass (live VIX > threshold blocks longs).
+            // Refresh the VIX long-block gate once for this pass (VIX close > threshold blocks longs).
             var vix = CheckVixGate();
             _vixLongOk = vix.LongOk;
             _vixLive = vix.LiveVix;
@@ -568,7 +568,7 @@ namespace cAlgo
             // close still within tradeable distance of the structural extreme.
             if (bestSetup != null)
             {
-                // VIX long-block: a triggered Long on a US equity is rejected when live VIX > threshold;
+                // VIX long-block: a triggered Long on a US equity is rejected when the VIX close > threshold;
                 // shorts are never blocked by VIX.
                 if (bestSetup.Direction == ReversalDirection.Long &&
                     RequireVixFilter && IsUsEquitySymbol(symbolName) && !_vixLongOk)
@@ -620,18 +620,15 @@ namespace cAlgo
 
             if (bestSetup != null && RequireMaxDistance)
             {
-                // Live-distance re-verification: the live price (bid/ask mid, falling back to the last
-                // completed bar close when no live quote is available) must still be within
-                // MaxDistanceAtr * ATR of the structural extreme. Entry happens at the next open with a
-                // live price, so an older trigger whose price has since travelled past the entry window
-                // is no longer tradeable even while its signal bar stays completed and unrepainted.
-                double liveClose = GetLivePrice(symbolName);
-                if (double.IsNaN(liveClose) || liveClose <= 0)
-                    liveClose = closes[targetIdx];
+                // Close-based distance re-verification: the close of the last completed bar must still
+                // be within MaxDistanceAtr * ATR of the structural extreme. Everything is evaluated on
+                // completed bars (no live data); whether the live price is still tradeable is checked
+                // manually by the trader.
+                double liveClose = closes[targetIdx];
                 double liveAtr = atr[targetIdx];
                 if (double.IsNaN(liveClose) || double.IsNaN(liveAtr) || liveAtr <= 0.0)
                 {
-                    RecordReject("Live price/ATR unavailable — cannot confirm entry distance");
+                    RecordReject("Close/ATR NaN on last completed bar — cannot confirm entry distance");
                     bestSetup = null;
                 }
                 else
@@ -644,7 +641,7 @@ namespace cAlgo
                         : (liveClose - extreme) / liveAtr;
                     if (liveDistanceAtr >= MaxDistanceAtr)
                     {
-                        RecordReject($"Live price {liveClose:F4} is {liveDistanceAtr:F2} ATR from {Lookback}-bar extreme {extreme:F4} (>= {MaxDistanceAtr:F2} ATR, entry no longer tradeable)");
+                        RecordReject($"Close {liveClose:F4} is {liveDistanceAtr:F2} ATR from {Lookback}-bar extreme {extreme:F4} (>= {MaxDistanceAtr:F2} ATR, entry no longer tradeable)");
                         bestSetup = null;
                     }
                 }
@@ -793,10 +790,10 @@ namespace cAlgo
         // =========================================================================
 
         /// <summary>
-        /// Computes the VIX long-block gate once per pass using the live VIX quote (bid/ask mid),
-        /// falling back to the last completed daily VIX close. When the filter is disabled or VIX
-        /// data is unavailable, the gate is bypassed (longs allowed). Shorts are never affected.
-        /// Longs are blocked when liveVix strictly exceeds <see cref="MaxVixThreshold"/>.
+        /// Computes the VIX long-block gate once per pass using the last completed daily VIX close
+        /// (close-based, no live data). When the filter is disabled or VIX data is unavailable, the
+        /// gate is bypassed (longs allowed). Shorts are never affected. Longs are blocked when the
+        /// VIX close strictly exceeds <see cref="MaxVixThreshold"/>.
         /// </summary>
         private (bool LongOk, double LiveVix, string Detail) CheckVixGate()
         {
@@ -805,12 +802,7 @@ namespace cAlgo
 
             try
             {
-                // 1. Try live mid price from the resolved VIX symbol.
-                double liveVix = GetLivePrice(_resolvedVixSymbol);
-                if (!double.IsNaN(liveVix) && liveVix > 0)
-                    return VixLongDecision(liveVix);
-
-                // 2. Fallback: last completed daily VIX close.
+                // Close-based: last completed daily VIX close.
                 var vixBars = EnsureBarsLoaded(TimeFrame.Daily, _resolvedVixSymbol, 5);
                 if (vixBars != null && vixBars.Count > 0)
                 {
@@ -1065,7 +1057,7 @@ namespace cAlgo
 
             string vixLiveStr = !double.IsNaN(_vixLive) ? _vixLive.ToString("F2") : "N/A";
             string vixStatus = RequireVixFilter
-                ? $"VIX {vixLiveStr} vs > {MaxVixThreshold:F1} | Longs {(_vixLongOk ? "OK" : "BLOCKED")} | Shorts OK"
+                ? $"VIX close {vixLiveStr} vs > {MaxVixThreshold:F1} | Longs {(_vixLongOk ? "OK" : "BLOCKED")} | Shorts OK"
                 : "VIX long-block OFF";
 
             string btcStatus = RequireCryptoBenchmarkFilter
