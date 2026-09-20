@@ -620,14 +620,18 @@ namespace cAlgo
 
             if (bestSetup != null && RequireMaxDistance)
             {
-                // Live-distance re-verification: the close on the last completed bar must still be
-                // within MaxDistanceAtr * ATR of the structural extreme. An older trigger whose price
-                // has since travelled past the entry window is no longer tradeable.
-                double liveClose = closes[targetIdx];
+                // Live-distance re-verification: the live price (bid/ask mid, falling back to the last
+                // completed bar close when no live quote is available) must still be within
+                // MaxDistanceAtr * ATR of the structural extreme. Entry happens at the next open with a
+                // live price, so an older trigger whose price has since travelled past the entry window
+                // is no longer tradeable even while its signal bar stays completed and unrepainted.
+                double liveClose = GetLivePrice(symbolName);
+                if (double.IsNaN(liveClose) || liveClose <= 0)
+                    liveClose = closes[targetIdx];
                 double liveAtr = atr[targetIdx];
                 if (double.IsNaN(liveClose) || double.IsNaN(liveAtr) || liveAtr <= 0.0)
                 {
-                    RecordReject("Live close/ATR NaN on last closed bar — cannot confirm entry distance");
+                    RecordReject("Live price/ATR unavailable — cannot confirm entry distance");
                     bestSetup = null;
                 }
                 else
@@ -640,7 +644,7 @@ namespace cAlgo
                         : (liveClose - extreme) / liveAtr;
                     if (liveDistanceAtr >= MaxDistanceAtr)
                     {
-                        RecordReject($"Live close {liveClose:F4} is {liveDistanceAtr:F2} ATR from {Lookback}-bar extreme {extreme:F4} (>= {MaxDistanceAtr:F2} ATR, entry no longer tradeable)");
+                        RecordReject($"Live price {liveClose:F4} is {liveDistanceAtr:F2} ATR from {Lookback}-bar extreme {extreme:F4} (>= {MaxDistanceAtr:F2} ATR, entry no longer tradeable)");
                         bestSetup = null;
                     }
                 }
