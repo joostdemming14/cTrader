@@ -878,7 +878,7 @@ namespace cAlgo
                 }
                 if (evalIdx < 0) evalIdx = n - 1;
 
-                double btcClose = btcBars.ClosePrices[evalIdx];
+                // SMA is computed on completed bars only (no repaint).
                 int startIdx = evalIdx - CryptoBenchmarkSmaPeriod + 1;
                 if (startIdx < 0) startIdx = 0;
                 double sum = 0.0;
@@ -887,11 +887,19 @@ namespace cAlgo
                 double btcSma = count > 0 ? sum / count : double.NaN;
 
                 if (double.IsNaN(btcSma) || btcSma <= 0.0)
-                    return (true, true, btcClose, double.NaN, "BTC SMA unavailable — filter bypassed");
+                    return (true, true, double.NaN, double.NaN, "BTC SMA unavailable — filter bypassed");
+
+                // Regime check uses the LIVE BTC price (bid/ask mid): crypto trades 24/7, so the last
+                // completed BTC bar can be ~24h stale at scan time and a regime decision on stale data
+                // is wrong exactly here. The SMA reference stays close-based (no repaint). Falls back
+                // to the last completed close when no live quote is available.
+                double btcClose = GetLivePrice(_resolvedCryptoBenchmarkSymbol);
+                if (double.IsNaN(btcClose) || btcClose <= 0)
+                    btcClose = btcBars.ClosePrices[evalIdx];
 
                 bool longOk = btcClose > btcSma;
                 bool shortOk = btcClose < btcSma;
-                string detail = $"BTC {btcClose:F2} vs SMA{CryptoBenchmarkSmaPeriod} {btcSma:F2} -> {(longOk ? "BTC > SMA (crypto longs allowed, shorts blocked)" : shortOk ? "BTC < SMA (crypto shorts allowed, longs blocked)" : "BTC at SMA (both blocked)")}";
+                string detail = $"BTC live {btcClose:F2} vs SMA{CryptoBenchmarkSmaPeriod} {btcSma:F2} -> {(longOk ? "BTC > SMA (crypto longs allowed, shorts blocked)" : shortOk ? "BTC < SMA (crypto shorts allowed, longs blocked)" : "BTC at SMA (both blocked)")}";
                 return (longOk, shortOk, btcClose, btcSma, detail);
             }
             catch (Exception ex)
