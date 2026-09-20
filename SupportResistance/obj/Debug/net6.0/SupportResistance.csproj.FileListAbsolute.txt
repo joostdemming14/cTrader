@@ -1,0 +1,12 @@
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\bin\Debug\net6.0\SupportResistance.deps.json
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\bin\Debug\net6.0\SupportResistance.dll
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\bin\Debug\net6.0\SupportResistance.pdb
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\SupportResistance.csproj.AssemblyReference.cache
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\SupportResistance.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\SupportResistance.AssemblyInfoInputs.cache
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\SupportResistance.AssemblyInfo.cs
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\SupportResistance.csproj.CoreCompileInputs.cache
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\SupportResistance.dll
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\refint\SupportResistance.dll
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\SupportResistance.pdb
+C:\Users\joode\Desktop\cTrader 2.0\SupportResistance\obj\Debug\net6.0\ref\SupportResistance.dll

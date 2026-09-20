@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "XDT0uEc/0Zg=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\joode\\Desktop\\cTrader 2.0\\SupportResistance\\SupportResistance.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\joode\\.nuget\\packages\\ctrader.automate\\1.0.20\\ctrader.automate.1.0.20.nupkg.sha512",
+    "C:\\Users\\joode\\.nuget\\packages\\microsoft.netcore.app.ref\\6.0.36\\microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
+    "C:\\Users\\joode\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\6.0.36\\microsoft.windowsdesktop.app.ref.6.0.36.nupkg.sha512",
+    "C:\\Users\\joode\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\6.0.36\\microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512"
+  ],
+  "logs": []
+}
