@@ -83,8 +83,8 @@ namespace cAlgo
         [Parameter("PPO Signal (EMA)", Group = "2. Indicators", DefaultValue = 9, MinValue = 1)]
         public int PpoSignalPeriod { get; set; } = 9;
 
-        [Parameter("Lookback (bars)", Group = "2. Indicators", DefaultValue = 10, MinValue = 5, MaxValue = 120)]
-        public int Lookback { get; set; } = 10;
+        [Parameter("Lookback (bars)", Group = "2. Indicators", DefaultValue = 5, MinValue = 5, MaxValue = 120)]
+        public int Lookback { get; set; } = 5;
 
         // =========================================================================
         // --- 3. Continuation Thresholds ---

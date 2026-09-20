@@ -124,7 +124,7 @@ namespace cAlgo
     ///   PPO    = (EMA16(Close) - EMA32(Close)) / EMA32(Close) * 100
     ///   PPOsig = EMA9(PPO)
     ///   CLV    = (2*Close - High - Low) / (High - Low)   range -1..+1
-    ///   Lookback = lookback bars (parameter; default 20)
+    ///   Lookback = lookback bars (parameter; default 5)
     ///
     /// Short Reversal trigger on bar t:
     ///   Close < lookback_high, CLV <= -0.35, Close > EMA50 + 2.0*ATR, PPO < PPOsig, SPY < SMA50.
