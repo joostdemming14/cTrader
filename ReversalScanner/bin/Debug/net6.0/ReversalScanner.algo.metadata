@@ -199,7 +199,7 @@
         "MinValue": 5,
         "MaxValue": 120,
         "Step": 1,
-        "DefaultValue": 10,
+        "DefaultValue": 5,
         "ParameterType": "Integer",
         "PropertyName": "Lookback",
         "FriendlyName": "Lookback (bars)",
@@ -321,6 +321,45 @@
         "PropertyName": "MaxVixThreshold",
         "FriendlyName": "Max VIX Threshold (longs blocked above)",
         "GroupName": "4b. VIX Long Block",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "RequireCryptoBenchmarkFilter",
+        "FriendlyName": "Require Crypto Benchmark Filter (BTC vs SMA)",
+        "GroupName": "4c. Crypto Benchmark (BTC vs SMA)",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "BTCUSD",
+        "ParameterType": "String",
+        "PropertyName": "CryptoBenchmarkSymbol",
+        "FriendlyName": "Crypto Benchmark Symbol",
+        "GroupName": "4c. Crypto Benchmark (BTC vs SMA)",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 10,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 50,
+        "ParameterType": "Integer",
+        "PropertyName": "CryptoBenchmarkSmaPeriod",
+        "FriendlyName": "Crypto Benchmark SMA Period",
+        "GroupName": "4c. Crypto Benchmark (BTC vs SMA)",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "BTCUSD,BTCGBP,BTCEUR,BTCAUD,ETHUSD,ETHGBP,ETHEUR,ETHAUD,LTCUSD,TRUMPUSD,AAVUSD,ATMUSD,FLOUSD,JUPUSD,NERUSD,ONDUSD,PEPUSD,SHBUSD,TRXUSD,WIFUSD,ARBUSD,BNKUSD,MANUSD,SANUSD,POLUSD,SONUSD,HBARUSD,SUIUSD,TONUSD,APTUSD,HYPEUSD,INJUSD,RENDERUSD,FETUSD,XAUTUSD,PAXGUSD,DOTUSD,LINKUSD,XLMUSD,XRPUSD,UNIUSD,DOGEUSD,ADAUSD,BCHUSD,BNBUSD,XTZUSD,SOLUSD,AVAXUSD,COMPUSD,ETCUSD,GLMRUSD,KSMUSD",
+        "ParameterType": "String",
+        "PropertyName": "CryptoSymbolsCsv",
+        "FriendlyName": "Crypto Symbols (comma separated)",
+        "GroupName": "4c. Crypto Benchmark (BTC vs SMA)",
         "IsValueVisibleInTitle": true,
         "Description": ""
       },

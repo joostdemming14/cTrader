@@ -88,7 +88,7 @@ namespace cAlgo
     /// Final no-RSI continuation logic:
     ///   EMA50, SMA200, ATR(14), PPO(16,32,9), CLV — same indicator stack as the reversal scanner
     ///   plus the SMA200 long-term trend filter (continuations only).
-    ///   Lookback = lookback bars (parameter; default 20) immediately preceding the trigger bar.
+    ///   Lookback = lookback bars (parameter; default 5) immediately preceding the trigger bar.
     ///
     /// Long Continuation trigger on bar t:
     ///   some Low <= EMA50 in the lookback-bar window, then Close > EMA50, Close > SMA200,

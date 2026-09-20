@@ -27,6 +27,8 @@ namespace cAlgo
     [Robot(AccessRights = AccessRights.None, TimeZone = TimeZones.UTC)]
     public class ContinuationScanner : Robot
     {
+        /// <summary>Default crypto symbol universe gated by the BTC benchmark filter.</summary>
+        private const string DefaultCryptoSymbolsCsv = "BTCUSD,BTCGBP,BTCEUR,BTCAUD,ETHUSD,ETHGBP,ETHEUR,ETHAUD,LTCUSD,TRUMPUSD,AAVUSD,ATMUSD,FLOUSD,JUPUSD,NERUSD,ONDUSD,PEPUSD,SHBUSD,TRXUSD,WIFUSD,ARBUSD,BNKUSD,MANUSD,SANUSD,POLUSD,SONUSD,HBARUSD,SUIUSD,TONUSD,APTUSD,HYPEUSD,INJUSD,RENDERUSD,FETUSD,XAUTUSD,PAXGUSD,DOTUSD,LINKUSD,XLMUSD,XRPUSD,UNIUSD,DOGEUSD,ADAUSD,BCHUSD,BNBUSD,XTZUSD,SOLUSD,AVAXUSD,COMPUSD,ETCUSD,GLMRUSD,KSMUSD";
         // =========================================================================
         // --- 1. Scan Setup ---
         // =========================================================================
@@ -81,8 +83,8 @@ namespace cAlgo
         [Parameter("PPO Signal (EMA)", Group = "2. Indicators", DefaultValue = 9, MinValue = 1)]
         public int PpoSignalPeriod { get; set; } = 9;
 
-        [Parameter("Lookback (bars)", Group = "2. Indicators", DefaultValue = 10, MinValue = 5, MaxValue = 120)]
-        public int Lookback { get; set; } = 10;
+        [Parameter("Lookback (bars)", Group = "2. Indicators", DefaultValue = 5, MinValue = 5, MaxValue = 120)]
+        public int Lookback { get; set; } = 5;
 
         // =========================================================================
         // --- 3. Continuation Thresholds ---
@@ -109,7 +111,7 @@ namespace cAlgo
         public int BenchmarkSmaPeriod { get; set; } = 50;
 
         // =========================================================================
-        // --- 4b. VIX Long Block (live VIX > threshold blocks longs; shorts unaffected) ---
+        // --- 4b. VIX Long Block (VIX close > threshold blocks longs; shorts unaffected) ---
         // =========================================================================
         [Parameter("Require VIX Long Block", Group = "4b. VIX Long Block", DefaultValue = true)]
         public bool RequireVixFilter { get; set; } = true;
@@ -119,6 +121,21 @@ namespace cAlgo
 
         [Parameter("Max VIX Threshold (longs blocked above)", Group = "4b. VIX Long Block", DefaultValue = 25.0, MinValue = 10.0, MaxValue = 60.0, Step = 0.5)]
         public double MaxVixThreshold { get; set; } = 25.0;
+
+        // =========================================================================
+        // --- 4c. Crypto Benchmark (BTC vs SMA) Filter (crypto symbols only) ---
+        // =========================================================================
+        [Parameter("Require Crypto Benchmark Filter (BTC vs SMA)", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = true)]
+        public bool RequireCryptoBenchmarkFilter { get; set; } = true;
+
+        [Parameter("Crypto Benchmark Symbol", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = "BTCUSD")]
+        public string CryptoBenchmarkSymbol { get; set; } = "BTCUSD";
+
+        [Parameter("Crypto Benchmark SMA Period", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = 50, MinValue = 10)]
+        public int CryptoBenchmarkSmaPeriod { get; set; } = 50;
+
+        [Parameter("Crypto Symbols (comma separated)", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = DefaultCryptoSymbolsCsv)]
+        public string CryptoSymbolsCsv { get; set; } = DefaultCryptoSymbolsCsv;
 
         // =========================================================================
         // --- 5. Alerts ---
@@ -184,11 +201,20 @@ namespace cAlgo
         private double _spySma50 = double.NaN;
         private string _spyDetail = "Pending first check";
 
-        // VIX long-block gate (recomputed once per scan pass). Blocks longs only when live VIX > threshold.
+        // VIX long-block gate (recomputed once per scan pass). Blocks longs only when the VIX close > threshold.
         private string _resolvedVixSymbol = "VIX";
         private bool _vixLongOk = true;
         private double _vixLive = double.NaN;
         private string _vixDetail = "Pending first check";
+
+        // Crypto benchmark gate (recomputed once per scan pass). Applies only to the configured crypto symbols.
+        private string _resolvedCryptoBenchmarkSymbol = "BTCUSD";
+        private bool _btcLongOk = true;
+        private bool _btcShortOk = true;
+        private double _btcClose = double.NaN;
+        private double _btcSma = double.NaN;
+        private string _btcDetail = "Pending first check";
+        private readonly HashSet<string> _cryptoSymbols = new(StringComparer.OrdinalIgnoreCase);
 
         protected override void OnStart()
         {
@@ -202,6 +228,8 @@ namespace cAlgo
 
             _resolvedBenchmarkSymbol = ResolveSymbolName(BenchmarkSymbol, "SPY.US", "SPY", "SPY.ETF");
             _resolvedVixSymbol = ResolveSymbolName(VixSymbol, "VIX", "VIXY.US", ".VIX", "VOLX", "VXX.US");
+            _resolvedCryptoBenchmarkSymbol = ResolveSymbolName(CryptoBenchmarkSymbol, "BTCUSD", "BTCEUR", "BTCGBP", "XBTUSD");
+            LoadCryptoSymbols();
 
             LoadWatchlist();
             CreateScanButton();
@@ -212,6 +240,7 @@ namespace cAlgo
             Print($"[ContinuationScanner] Thresholds: CLV +-{ClvThreshold:F2} | Max dist to {Lookback}-bar level {(RequireMaxDistance ? $"{MaxDistanceAtr:F1}*ATR" : "OFF")}. No SL/PT computed (alert-only).");
             Print($"[ContinuationScanner] Lookback = {Lookback}-bar EMA50 touch + swing H/L. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
             Print($"[ContinuationScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
+            Print($"[ContinuationScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
 
             DrawHud(0, _watchlistSymbols.Count, 0, "Starting scan pass #1...");
 
@@ -344,13 +373,23 @@ namespace cAlgo
             if (RequireBenchmarkFilter)
                 Print($"[ContinuationScanner] Benchmark gate ({_resolvedBenchmarkSymbol}): {gate.Detail} | Longs {(gate.LongOk ? "ALLOWED" : "BLOCKED")} | Shorts {(gate.ShortOk ? "ALLOWED" : "BLOCKED")}.");
 
-            // Refresh the VIX long-block gate once for this pass (live VIX > threshold blocks longs).
+            // Refresh the VIX long-block gate once for this pass (VIX close > threshold blocks longs).
             var vix = CheckVixGate();
             _vixLongOk = vix.LongOk;
             _vixLive = vix.LiveVix;
             _vixDetail = vix.Detail;
             if (RequireVixFilter)
                 Print($"[ContinuationScanner] VIX long-block gate ({_resolvedVixSymbol}): {vix.Detail} | Longs {(vix.LongOk ? "ALLOWED" : "BLOCKED")} | Shorts ALWAYS ALLOWED.");
+
+            // Refresh the crypto benchmark gate once for this pass (BTC close vs SMA on the last completed BTC daily bar).
+            var btc = CheckCryptoBenchmarkGate();
+            _btcLongOk = btc.LongOk;
+            _btcShortOk = btc.ShortOk;
+            _btcClose = btc.BtcClose;
+            _btcSma = btc.BtcSma;
+            _btcDetail = btc.Detail;
+            if (RequireCryptoBenchmarkFilter)
+                Print($"[ContinuationScanner] Crypto benchmark gate ({_resolvedCryptoBenchmarkSymbol}): {btc.Detail} | Longs {(btc.LongOk ? "ALLOWED" : "BLOCKED")} | Shorts {(btc.ShortOk ? "ALLOWED" : "BLOCKED")}. (Crypto symbols only)");
 
             _isPassInProgress = true;
             _currentBatchIndex = 0;
@@ -529,13 +568,29 @@ namespace cAlgo
             // close still within tradeable distance of the structural extreme.
             if (bestSetup != null)
             {
-                // VIX long-block: a triggered Long on a US equity is rejected when live VIX > threshold;
+                // VIX long-block: a triggered Long on a US equity is rejected when the VIX close > threshold;
                 // shorts are never blocked by VIX.
                 if (bestSetup.Direction == ReversalDirection.Long &&
                     RequireVixFilter && IsUsEquitySymbol(symbolName) && !_vixLongOk)
                 {
                     RecordReject($"VIX long-block ({_vixDetail}) — longs blocked, shorts unaffected");
                     bestSetup = null;
+                }
+
+                // Crypto benchmark gate: crypto longs require BTC > BTC_SMA, crypto shorts BTC < BTC_SMA.
+                // US equities keep using the SPY gate; non-crypto, non-US assets are unaffected.
+                if (RequireCryptoBenchmarkFilter && IsCryptoSymbol(symbolName))
+                {
+                    if (bestSetup.Direction == ReversalDirection.Long && !_btcLongOk)
+                    {
+                        RecordReject($"BTC crypto gate failed ({_btcDetail}) — crypto longs blocked");
+                        bestSetup = null;
+                    }
+                    else if (bestSetup.Direction == ReversalDirection.Short && !_btcShortOk)
+                    {
+                        RecordReject($"BTC crypto gate failed ({_btcDetail}) — crypto shorts blocked");
+                        bestSetup = null;
+                    }
                 }
             }
 
@@ -565,14 +620,15 @@ namespace cAlgo
 
             if (bestSetup != null && RequireMaxDistance)
             {
-                // Live-distance re-verification: the close on the last completed bar must still be
-                // within MaxDistanceAtr * ATR of the structural extreme. An older trigger whose price
-                // has since travelled past the entry window is no longer tradeable.
+                // Close-based distance re-verification: the close of the last completed bar must still
+                // be within MaxDistanceAtr * ATR of the structural extreme. Everything is evaluated on
+                // completed bars (no live data); whether the live price is still tradeable is checked
+                // manually by the trader.
                 double liveClose = closes[targetIdx];
                 double liveAtr = atr[targetIdx];
                 if (double.IsNaN(liveClose) || double.IsNaN(liveAtr) || liveAtr <= 0.0)
                 {
-                    RecordReject("Live close/ATR NaN on last closed bar — cannot confirm entry distance");
+                    RecordReject("Close/ATR NaN on last completed bar — cannot confirm entry distance");
                     bestSetup = null;
                 }
                 else
@@ -585,7 +641,7 @@ namespace cAlgo
                         : (liveClose - extreme) / liveAtr;
                     if (liveDistanceAtr >= MaxDistanceAtr)
                     {
-                        RecordReject($"Live close {liveClose:F4} is {liveDistanceAtr:F2} ATR from {Lookback}-bar extreme {extreme:F4} (>= {MaxDistanceAtr:F2} ATR, entry no longer tradeable)");
+                        RecordReject($"Close {liveClose:F4} is {liveDistanceAtr:F2} ATR from {Lookback}-bar extreme {extreme:F4} (>= {MaxDistanceAtr:F2} ATR, entry no longer tradeable)");
                         bestSetup = null;
                     }
                 }
@@ -666,6 +722,7 @@ namespace cAlgo
             sb.AppendLine($"  EMA50: {s.Ema50:F4} | SMA200: {s.Sma200:F4} | ATR: {s.Atr:F4} | Live: {s.LivePrice:F4} | Dist to {Lookback}-bar level: {s.DistanceAtr:F2} ATR");
             sb.AppendLine($"  SPY gate: {_spyDetail}");
             sb.AppendLine($"  VIX long-block: {_vixDetail}");
+            sb.AppendLine($"  BTC crypto gate: {_btcDetail}");
             sb.AppendLine($"  ENTRY: next open (scanner reports the setup only; no SL/PT computed)");
             string detail = sb.ToString();
 
@@ -733,10 +790,10 @@ namespace cAlgo
         // =========================================================================
 
         /// <summary>
-        /// Computes the VIX long-block gate once per pass using the live VIX quote (bid/ask mid),
-        /// falling back to the last completed daily VIX close. When the filter is disabled or VIX
-        /// data is unavailable, the gate is bypassed (longs allowed). Shorts are never affected.
-        /// Longs are blocked when liveVix strictly exceeds <see cref="MaxVixThreshold"/>.
+        /// Computes the VIX long-block gate once per pass using the last completed daily VIX close
+        /// (close-based, no live data). When the filter is disabled or VIX data is unavailable, the
+        /// gate is bypassed (longs allowed). Shorts are never affected. Longs are blocked when the
+        /// VIX close strictly exceeds <see cref="MaxVixThreshold"/>.
         /// </summary>
         private (bool LongOk, double LiveVix, string Detail) CheckVixGate()
         {
@@ -745,12 +802,7 @@ namespace cAlgo
 
             try
             {
-                // 1. Try live mid price from the resolved VIX symbol.
-                double liveVix = GetLivePrice(_resolvedVixSymbol);
-                if (!double.IsNaN(liveVix) && liveVix > 0)
-                    return VixLongDecision(liveVix);
-
-                // 2. Fallback: last completed daily VIX close.
+                // Close-based: last completed daily VIX close.
                 var vixBars = EnsureBarsLoaded(TimeFrame.Daily, _resolvedVixSymbol, 5);
                 if (vixBars != null && vixBars.Count > 0)
                 {
@@ -781,6 +833,95 @@ namespace cAlgo
         {
             if (string.IsNullOrWhiteSpace(symbolName)) return false;
             return symbolName.EndsWith(".US", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // =========================================================================
+        // --- Crypto benchmark (BTC vs SMA) gate ---
+        // =========================================================================
+
+        /// <summary>
+        /// Computes the crypto benchmark gate once per pass on the last completed BTC daily bar
+        /// (24/7 market, no repaint): crypto longs require BTC close &gt; BTC_SMA, crypto shorts require
+        /// BTC close &lt; BTC_SMA. Only symbols in the configured crypto list are affected. When the
+        /// filter is disabled or BTC data is unavailable, the gate is bypassed (both sides allowed).
+        /// </summary>
+        private (bool LongOk, bool ShortOk, double BtcClose, double BtcSma, string Detail) CheckCryptoBenchmarkGate()
+        {
+            if (!RequireCryptoBenchmarkFilter)
+                return (true, true, double.NaN, double.NaN, "Crypto benchmark filter disabled (bypassed)");
+
+            try
+            {
+                int minBars = CryptoBenchmarkSmaPeriod + 20;
+                var btcBars = EnsureBarsLoaded(TimeFrame.Daily, _resolvedCryptoBenchmarkSymbol, minBars);
+                if (btcBars == null || btcBars.Count < minBars)
+                    return (true, true, double.NaN, double.NaN, $"BTC data unavailable ({_resolvedCryptoBenchmarkSymbol} bars < {minBars}) — filter bypassed");
+
+                int n = btcBars.Count;
+
+                // Crypto trades 24/7: while the market is open (the usual case) bar n-1 is still
+                // forming and n-2 is the last completed daily bar (no repaint).
+                var btcSymbol = Symbols.GetSymbol(_resolvedCryptoBenchmarkSymbol);
+                bool isMarketOpen = btcSymbol != null && btcSymbol.MarketHours.IsOpened();
+                int evalIdx = isMarketOpen ? (n - 2) : (n - 1);
+
+                // Protect against an unformed future bar or a flat phantom rollover bar.
+                if (evalIdx == n - 1 && n >= 2)
+                {
+                    if (btcBars.OpenTimes[n - 1] > Server.TimeInUtc ||
+                        (btcBars.TickVolumes[n - 1] == 0 &&
+                         btcBars.OpenPrices[n - 1] == btcBars.ClosePrices[n - 1] &&
+                         btcBars.HighPrices[n - 1] == btcBars.LowPrices[n - 1]))
+                    {
+                        evalIdx = n - 2;
+                    }
+                }
+                if (evalIdx < 0) evalIdx = n - 1;
+
+                double btcClose = btcBars.ClosePrices[evalIdx];
+                int startIdx = evalIdx - CryptoBenchmarkSmaPeriod + 1;
+                if (startIdx < 0) startIdx = 0;
+                double sum = 0.0;
+                int count = 0;
+                for (int i = startIdx; i <= evalIdx; i++) { sum += btcBars.ClosePrices[i]; count++; }
+                double btcSma = count > 0 ? sum / count : double.NaN;
+
+                if (double.IsNaN(btcSma) || btcSma <= 0.0)
+                    return (true, true, btcClose, double.NaN, "BTC SMA unavailable — filter bypassed");
+
+                bool longOk = btcClose > btcSma;
+                bool shortOk = btcClose < btcSma;
+                string detail = $"BTC {btcClose:F2} vs SMA{CryptoBenchmarkSmaPeriod} {btcSma:F2} -> {(longOk ? "BTC > SMA (crypto longs allowed, shorts blocked)" : shortOk ? "BTC < SMA (crypto shorts allowed, longs blocked)" : "BTC at SMA (both blocked)")}";
+                return (longOk, shortOk, btcClose, btcSma, detail);
+            }
+            catch (Exception ex)
+            {
+                return (true, true, double.NaN, double.NaN, $"BTC check error: {ex.Message} — filter bypassed");
+            }
+        }
+
+        /// <summary>Parses the configured crypto symbol list into the lookup set (spaces ignored).</summary>
+        private void LoadCryptoSymbols()
+        {
+            _cryptoSymbols.Clear();
+            if (string.IsNullOrWhiteSpace(CryptoSymbolsCsv)) return;
+            foreach (var part in CryptoSymbolsCsv.Split(new[] { ',', ';', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string raw = part.Trim();
+                if (raw.Length == 0) continue;
+                _cryptoSymbols.Add(raw);
+                string compact = raw.Replace(" ", "").Replace("\t", "");
+                if (compact.Length > 0) _cryptoSymbols.Add(compact);
+            }
+        }
+
+        /// <summary>True when the symbol is in the configured crypto list (spaces ignored, e.g. "BTC EUR" matches "BTCEUR").</summary>
+        private bool IsCryptoSymbol(string symbolName)
+        {
+            if (string.IsNullOrWhiteSpace(symbolName)) return false;
+            if (_cryptoSymbols.Contains(symbolName)) return true;
+            string compact = symbolName.Replace(" ", "");
+            return compact.Length > 0 && _cryptoSymbols.Contains(compact);
         }
 
         private string ResolveSymbolName(string preferred, params string[] fallbacks)
@@ -916,8 +1057,12 @@ namespace cAlgo
 
             string vixLiveStr = !double.IsNaN(_vixLive) ? _vixLive.ToString("F2") : "N/A";
             string vixStatus = RequireVixFilter
-                ? $"VIX {vixLiveStr} vs > {MaxVixThreshold:F1} | Longs {(_vixLongOk ? "OK" : "BLOCKED")} | Shorts OK"
+                ? $"VIX close {vixLiveStr} vs > {MaxVixThreshold:F1} | Longs {(_vixLongOk ? "OK" : "BLOCKED")} | Shorts OK"
                 : "VIX long-block OFF";
+
+            string btcStatus = RequireCryptoBenchmarkFilter
+                ? $"BTC {_btcClose:F2} vs SMA{CryptoBenchmarkSmaPeriod} {_btcSma:F2} | Longs {(_btcLongOk ? "OK" : "BLOCKED")} | Shorts {(_btcShortOk ? "OK" : "BLOCKED")}"
+                : "Crypto benchmark OFF";
 
             var sb = new StringBuilder();
             sb.AppendLine("=== CONTINUATION SCANNER (Daily, EOD signals, entry next open) ===");
@@ -926,6 +1071,7 @@ namespace cAlgo
             sb.AppendLine($"Thresholds: CLV +-{ClvThreshold:F2} | Max dist to {Lookback}-bar level {(RequireMaxDistance ? $"{MaxDistanceAtr:F1}*ATR" : "OFF")} | No SL/PT");
             sb.AppendLine($"Benchmark: {spyStatus} | {_spyDetail}");
             sb.AppendLine($"VIX: {vixStatus} | {_vixDetail}");
+            sb.AppendLine($"Crypto: {btcStatus} | {_btcDetail}");
             sb.AppendLine($"Status: {statusText}");
             sb.AppendLine($"Pass #{_scanPassCount} | Scanned: {scannedCount}/{totalCount} | Active Setups: {_activeSetups.Count} | Total Alerts: {_totalAlertsFired}");
             sb.AppendLine($"Last Scan: {(_lastScanTime == DateTime.MinValue ? "Pending..." : _lastScanTime.ToString("HH:mm:ss") + " UTC")}");

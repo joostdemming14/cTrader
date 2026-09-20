@@ -124,7 +124,7 @@ namespace cAlgo
     ///   PPO    = (EMA16(Close) - EMA32(Close)) / EMA32(Close) * 100
     ///   PPOsig = EMA9(PPO)
     ///   CLV    = (2*Close - High - Low) / (High - Low)   range -1..+1
-    ///   Lookback = lookback bars (parameter; default 20)
+    ///   Lookback = lookback bars (parameter; default 5)
     ///
     /// Short Reversal trigger on bar t:
     ///   Close < lookback_high, CLV <= -0.35, Close > EMA50 + 2.0*ATR, PPO < PPOsig, SPY < SMA50.
@@ -231,62 +231,6 @@ namespace cAlgo
             for (int i = period; i < n; i++)
                 result[i] = (result[i - 1] * (period - 1.0) + tr[i]) / period;
             return result;
-        }
-
-        /// <summary>
-        /// Relative Strength Index with Wilder's smoothing. NaN before `period`.
-        /// Kept as a reusable helper (no longer part of the Reversal/Continuation strategy).
-        /// </summary>
-        public static double[] ComputeRsi(IReadOnlyList<double> closes, int period)
-        {
-            if (closes == null) throw new ArgumentNullException(nameof(closes));
-            if (period < 1) throw new ArgumentOutOfRangeException(nameof(period), "must be >= 1");
-
-            int n = closes.Count;
-            double[] rsi = new double[n];
-            for (int i = 0; i < n; i++) rsi[i] = double.NaN;
-            if (n <= period) return rsi;
-
-            double sumGain = 0.0, sumLoss = 0.0;
-            for (int i = 1; i <= period; i++)
-            {
-                double diff = closes[i] - closes[i - 1];
-                if (diff >= 0) sumGain += diff; else sumLoss += -diff;
-            }
-            double avgGain = sumGain / period;
-            double avgLoss = sumLoss / period;
-            rsi[period] = (avgLoss == 0) ? 100.0 : ((avgGain == 0) ? 0.0 : 100.0 - (100.0 / (1.0 + (avgGain / avgLoss))));
-
-            for (int i = period + 1; i < n; i++)
-            {
-                double diff = closes[i] - closes[i - 1];
-                double gain = diff > 0 ? diff : 0.0;
-                double loss = diff < 0 ? -diff : 0.0;
-                avgGain = (avgGain * (period - 1) + gain) / period;
-                avgLoss = (avgLoss * (period - 1) + loss) / period;
-                if (avgLoss == 0) rsi[i] = 100.0;
-                else if (avgGain == 0) rsi[i] = 0.0;
-                else rsi[i] = 100.0 - (100.0 / (1.0 + (avgGain / avgLoss)));
-            }
-            return rsi;
-        }
-
-        /// <summary>
-        /// Close Location Value per bar: (2*Close - High - Low) / (High - Low). Range -1..+1.
-        /// Returns NaN when the bar has zero or negative range (High - Low <= 0).
-        /// </summary>
-        public static double[] ComputeClv(IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows)
-        {
-            if (closes == null || highs == null || lows == null)
-                throw new ArgumentNullException("arrays must not be null");
-            int n = closes.Count;
-            double[] clv = new double[n];
-            for (int i = 0; i < n; i++)
-            {
-                double range = highs[i] - lows[i];
-                clv[i] = range > 0.0 ? (2.0 * closes[i] - highs[i] - lows[i]) / range : double.NaN;
-            }
-            return clv;
         }
 
         /// <summary>

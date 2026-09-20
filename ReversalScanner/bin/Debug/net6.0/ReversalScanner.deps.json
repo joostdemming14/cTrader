@@ -18,8 +18,7 @@
         "runtime": {
           "lib/net6.0/cAlgo.API.dll": {
             "assemblyVersion": "1.0.0.0",
-            "fileVersion": "1.0.0.0",
-            "localPath": "cAlgo.API.dll"
+            "fileVersion": "1.0.0.0"
           }
         }
       }

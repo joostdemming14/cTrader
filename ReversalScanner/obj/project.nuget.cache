@@ -1,13 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "cD7ZUTXEaLY=",
+  "dgSpecHash": "tXLI2fgvpNdmjx4wqdKOP0JgmVdvcEKRK7N0kBno7fhelx3IcqEOVStdxpGq7JsyDIErGuJyudnzOB2OsNsNBA==",
   "success": true,
-  "projectFilePath": "C:\\Users\\joode\\Desktop\\cTrader 2.0\\ReversalScanner\\ReversalScanner.csproj",
+  "projectFilePath": "/workspace/github__joostdemming14__cTrader/ReversalScanner/ReversalScanner.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\joode\\.nuget\\packages\\ctrader.automate\\1.0.21\\ctrader.automate.1.0.21.nupkg.sha512",
-    "C:\\Users\\joode\\.nuget\\packages\\microsoft.netcore.app.ref\\6.0.36\\microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
-    "C:\\Users\\joode\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\6.0.36\\microsoft.windowsdesktop.app.ref.6.0.36.nupkg.sha512",
-    "C:\\Users\\joode\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\6.0.36\\microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512"
+    "/home/appuser/.nuget/packages/ctrader.automate/1.0.21/ctrader.automate.1.0.21.nupkg.sha512"
   ],
   "logs": []
 }
