@@ -1,0 +1,362 @@
+[
+  {
+    "Flags": "Robot",
+    "Guid": "00000000-0000-0000-0000-000000000000",
+    "Group": "Custom",
+    "FriendlyName": "ContinuationScanner",
+    "ShortName": null,
+    "TypeName": "cAlgo.ContinuationScanner",
+    "AssemblyName": "ContinuationScanner, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+    "TimeZone": "UTC",
+    "IsOverlay": false,
+    "IsPercentage": false,
+    "ScalePrecision": null,
+    "Levels": [],
+    "DefaultSymbolName": null,
+    "DefaultTimeFrame": null,
+    "Video": null,
+    "Lines": [],
+    "Clouds": [],
+    "Parameters": [
+      {
+        "DefaultValue": "Screener",
+        "ParameterType": "String",
+        "PropertyName": "WatchlistName",
+        "FriendlyName": "Watchlist Name",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "EnumValues": {
+          "Both": 0,
+          "LongOnly": 1,
+          "ShortOnly": 2
+        },
+        "DefaultValue": 0,
+        "ParameterType": "Enum",
+        "PropertyName": "AllowedDirection",
+        "FriendlyName": "Scan Direction",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "EnumValues": {
+          "DailyAfterClose": 0,
+          "Hourly": 1,
+          "Every15Minutes": 2,
+          "ManualOnly": 3,
+          "CustomInterval": 4
+        },
+        "DefaultValue": 0,
+        "ParameterType": "Enum",
+        "PropertyName": "ScheduleMode",
+        "FriendlyName": "Schedule Mode",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 0,
+        "MaxValue": 23,
+        "Step": 1,
+        "DefaultValue": 16,
+        "ParameterType": "Integer",
+        "PropertyName": "DailyCloseHourEt",
+        "FriendlyName": "Daily Close Hour (ET)",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "ScanOnStart",
+        "FriendlyName": "Scan Immediately On Start",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 60,
+        "MaxValue": 2147483647,
+        "Step": 60,
+        "DefaultValue": 3600,
+        "ParameterType": "Integer",
+        "PropertyName": "ScanIntervalSeconds",
+        "FriendlyName": "Custom Interval (sec)",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 5,
+        "MaxValue": 50,
+        "Step": 1,
+        "DefaultValue": 20,
+        "ParameterType": "Integer",
+        "PropertyName": "BatchSize",
+        "FriendlyName": "Symbols per Batch Tick",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 100,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 250,
+        "ParameterType": "Integer",
+        "PropertyName": "MinBarsToScan",
+        "FriendlyName": "Min Bars to Scan",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 0,
+        "MaxValue": 5,
+        "Step": 1,
+        "DefaultValue": 2,
+        "ParameterType": "Integer",
+        "PropertyName": "MaxSetupAgeTradingDays",
+        "FriendlyName": "Max Setup Age (Trading Days, 0 = Today Only)",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "UseUsSessionBarLogic",
+        "FriendlyName": "US Session Bar Logic (US equities only)",
+        "GroupName": "1. Scan Setup",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 10,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 50,
+        "ParameterType": "Integer",
+        "PropertyName": "EmaPeriod",
+        "FriendlyName": "EMA Period",
+        "GroupName": "2. Indicators",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 20,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 200,
+        "ParameterType": "Integer",
+        "PropertyName": "Sma200Period",
+        "FriendlyName": "SMA200 Period (Long-Term Trend)",
+        "GroupName": "2. Indicators",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 1,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 14,
+        "ParameterType": "Integer",
+        "PropertyName": "AtrPeriod",
+        "FriendlyName": "ATR Period",
+        "GroupName": "2. Indicators",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 2,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 16,
+        "ParameterType": "Integer",
+        "PropertyName": "PpoFastPeriod",
+        "FriendlyName": "PPO Fast (EMA)",
+        "GroupName": "2. Indicators",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 5,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 32,
+        "ParameterType": "Integer",
+        "PropertyName": "PpoSlowPeriod",
+        "FriendlyName": "PPO Slow (EMA)",
+        "GroupName": "2. Indicators",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 1,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 9,
+        "ParameterType": "Integer",
+        "PropertyName": "PpoSignalPeriod",
+        "FriendlyName": "PPO Signal (EMA)",
+        "GroupName": "2. Indicators",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 5,
+        "MaxValue": 120,
+        "Step": 1,
+        "DefaultValue": 10,
+        "ParameterType": "Integer",
+        "PropertyName": "Lookback",
+        "FriendlyName": "Lookback (bars)",
+        "GroupName": "2. Indicators",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 0.0,
+        "MaxValue": 1.0,
+        "Step": 0.05,
+        "DefaultValue": 0.35,
+        "ParameterType": "Double",
+        "PropertyName": "ClvThreshold",
+        "FriendlyName": "CLV Threshold (abs)",
+        "GroupName": "3. Continuation Thresholds",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "RequireMaxDistance",
+        "FriendlyName": "Require Max Distance To Level",
+        "GroupName": "3. Continuation Thresholds",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 0.5,
+        "MaxValue": 5.0,
+        "Step": 0.1,
+        "DefaultValue": 1.5,
+        "ParameterType": "Double",
+        "PropertyName": "MaxDistanceAtr",
+        "FriendlyName": "Max Distance To Level (x ATR)",
+        "GroupName": "3. Continuation Thresholds",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "RequireBenchmarkFilter",
+        "FriendlyName": "Require Benchmark Filter (SPY vs SMA50)",
+        "GroupName": "4. Benchmark Filter",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "SPY.US",
+        "ParameterType": "String",
+        "PropertyName": "BenchmarkSymbol",
+        "FriendlyName": "Benchmark Symbol",
+        "GroupName": "4. Benchmark Filter",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 10,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 50,
+        "ParameterType": "Integer",
+        "PropertyName": "BenchmarkSmaPeriod",
+        "FriendlyName": "Benchmark SMA Period",
+        "GroupName": "4. Benchmark Filter",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "RequireVixFilter",
+        "FriendlyName": "Require VIX Long Block",
+        "GroupName": "4b. VIX Long Block",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "VIX",
+        "ParameterType": "String",
+        "PropertyName": "VixSymbol",
+        "FriendlyName": "VIX Symbol",
+        "GroupName": "4b. VIX Long Block",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 10.0,
+        "MaxValue": 60.0,
+        "Step": 0.5,
+        "DefaultValue": 25.0,
+        "ParameterType": "Double",
+        "PropertyName": "MaxVixThreshold",
+        "FriendlyName": "Max VIX Threshold (longs blocked above)",
+        "GroupName": "4b. VIX Long Block",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "AlertSound",
+        "FriendlyName": "Alert Sound",
+        "GroupName": "5. Alerts",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "AlertPopup",
+        "FriendlyName": "Alert Popup",
+        "GroupName": "5. Alerts",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      }
+    ],
+    "Capabilities": [],
+    "CustomAttributes": [
+      {
+        "TypeFullName": "System.Runtime.CompilerServices.NullableContextAttribute",
+        "CtorArguments": [
+          {
+            "TypeFullName": "System.Byte",
+            "Value": 1
+          }
+        ],
+        "NamedArguments": []
+      },
+      {
+        "TypeFullName": "System.Runtime.CompilerServices.NullableAttribute",
+        "CtorArguments": [
+          {
+            "TypeFullName": "System.Byte",
+            "Value": 0
+          }
+        ],
+        "NamedArguments": []
+      }
+    ],
+    "Sets": [],
+    "AddIndicatorsToChart": false,
+    "AdditionalInfoUrl": null,
+    "Bars": []
+  }
+]

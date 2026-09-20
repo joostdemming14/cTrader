@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AlgoName>ContinuationScanner</AlgoName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="cTrader.Automate" Version="*-*" />
+  </ItemGroup>
+
+  <!-- Link the ReversalScanner engine for shared indicator + scheduling helpers and enums. -->
+  <ItemGroup>
+    <Compile Include="..\ReversalScanner\ReversalEngine.cs" Link="ReversalEngine.cs" />
+  </ItemGroup>
+
+  <Target Name="_OverrideAlgoFileName" BeforeTargets="_ExtractMetadata">
+    <PropertyGroup>
+      <_AlgoFileName>ContinuationScanner.algo</_AlgoFileName>
+      <_AlgoFilePath>$(OutDir)$(_AlgoFileName)</_AlgoFilePath>
+      <_AlgoMetadataFileName>$(_AlgoFileName).metadata</_AlgoMetadataFileName>
+      <_AlgoMetadataFilePath>$(OutDir)$(_AlgoMetadataFileName)</_AlgoMetadataFilePath>
+    </PropertyGroup>
+  </Target>
+
+</Project>

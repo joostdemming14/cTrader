@@ -1,0 +1,12 @@
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\bin\Debug\net6.0\ReversalScanner.deps.json
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\bin\Debug\net6.0\ReversalScanner.dll
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\bin\Debug\net6.0\ReversalScanner.pdb
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\ReversalScanner.csproj.AssemblyReference.cache
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\ReversalScanner.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\ReversalScanner.AssemblyInfoInputs.cache
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\ReversalScanner.AssemblyInfo.cs
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\ReversalScanner.csproj.CoreCompileInputs.cache
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\ReversalScanner.dll
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\refint\ReversalScanner.dll
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\ReversalScanner.pdb
+C:\Users\joode\Desktop\cTrader 2.0\ReversalScanner\obj\Debug\net6.0\ref\ReversalScanner.dll
