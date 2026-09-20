@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\joode\\Desktop\\cTrader 2.0\\ReversalScanner\\ReversalScanner.csproj": {}
+    "/workspace/github__joostdemming14__cTrader/ReversalScanner/ReversalScanner.csproj": {}
   },
   "projects": {
-    "C:\\Users\\joode\\Desktop\\cTrader 2.0\\ReversalScanner\\ReversalScanner.csproj": {
+    "/workspace/github__joostdemming14__cTrader/ReversalScanner/ReversalScanner.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\joode\\Desktop\\cTrader 2.0\\ReversalScanner\\ReversalScanner.csproj",
+        "projectUniqueName": "/workspace/github__joostdemming14__cTrader/ReversalScanner/ReversalScanner.csproj",
         "projectName": "ReversalScanner",
-        "projectPath": "C:\\Users\\joode\\Desktop\\cTrader 2.0\\ReversalScanner\\ReversalScanner.csproj",
-        "packagesPath": "C:\\Users\\joode\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\joode\\Desktop\\cTrader 2.0\\ReversalScanner\\obj\\",
+        "projectPath": "/workspace/github__joostdemming14__cTrader/ReversalScanner/ReversalScanner.csproj",
+        "packagesPath": "/home/appuser/.nuget/packages/",
+        "outputPath": "/workspace/github__joostdemming14__cTrader/ReversalScanner/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\joode\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "/home/appuser/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net6.0"
@@ -24,7 +24,6 @@
         },
         "frameworks": {
           "net6.0": {
-            "framework": "net6.0",
             "targetAlias": "net6.0",
             "projectReferences": {}
           }
@@ -33,17 +32,10 @@
           "warnAsError": [
             "NU1605"
           ]
-        },
-        "restoreAuditProperties": {
-          "enableAudit": "true",
-          "auditLevel": "low",
-          "auditMode": "direct"
-        },
-        "SdkAnalysisLevel": "11.0.100"
+        }
       },
       "frameworks": {
         "net6.0": {
-          "framework": "net6.0",
           "targetAlias": "net6.0",
           "dependencies": {
             "cTrader.Automate": {
@@ -62,26 +54,12 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[6.0.36, 6.0.36]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[6.0.36, 6.0.36]"
-            },
-            {
-              "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[6.0.36, 6.0.36]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\11.0.100-preview.6.26359.118\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/home/appuser/.dotnet/sdk/6.0.428/RuntimeIdentifierGraph.json"
         }
       }
     }
