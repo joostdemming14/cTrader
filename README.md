@@ -23,16 +23,16 @@ Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend fi
 
 ### Reversal (ReversalScanner)
 
-Reversals use only the latest completed signal bar; there is no structural lookback. The optional next-bar confirmation must close beyond the signal bar high/low.
+Reversals fire on the closed bar that makes a fresh lookback extreme — TSI momentum divergence versus the reference extreme, with no pivot-confirmation lag. The optional next-bar confirmation (default OFF) must close beyond the signal bar high/low.
 
 | | Long Reversal | Short Reversal |
 |---|---|---|
-| Break | Close > lowest Low | Close < highest High |
+| Fresh extreme | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` bars back) | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` bars back) |
+| Momentum at extreme | TSI < -20 | TSI > +20 |
+| Momentum divergence | TSI >= reference TSI + 1.99 | TSI <= reference TSI - 1.99 |
 | Close location | CLV >= +0.25 | CLV <= -0.25 |
-| EMA extension | Close < EMA21 - 2.0*ATR | Close > EMA21 + 2.0*ATR |
 | Trend filter | Close > SMA200 | Close < SMA200 |
-| Momentum | PPO > PPOsig | PPO < PPOsig |
-| Confirmation | Next close > signal-bar High | Next close < signal-bar Low |
+| Confirmation (optional, default off) | Next close > signal-bar High | Next close < signal-bar Low |
 
 ### Continuation (ContinuationScanner)
 
