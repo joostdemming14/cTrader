@@ -23,14 +23,12 @@ Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend fi
 
 ### Reversal (ReversalScanner)
 
-Reversals fire on the closed bar that makes a fresh lookback extreme — TSI momentum divergence versus the reference extreme, with no pivot-confirmation lag. The optional next-bar confirmation (default OFF) must close beyond the signal bar high/low.
+Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a bar in the last `TriggerWindow` bars made a fresh lookback extreme whose TSI diverged from the reference extreme; the setup dies when a more extreme print follows. Step 2 — the trigger: the signal bar's close location. The divergence bar and trigger bar may be the same bar. The optional next-bar confirmation (default OFF) must close beyond the signal bar high/low.
 
 | | Long Reversal | Short Reversal |
 |---|---|---|
-| Fresh extreme | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` bars back) | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` bars back) |
-| Momentum at extreme | TSI < -20 | TSI > +20 |
-| Momentum divergence | TSI >= reference TSI + 1.99 | TSI <= reference TSI - 1.99 |
-| Close location | CLV >= +0.25 | CLV <= -0.25 |
+| Divergence (step 1) | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` bars back), reference TSI < -20, TSI >= reference TSI + 1.0, no lower Low since | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` bars back), reference TSI > +20, TSI <= reference TSI - 1.0, no higher High since |
+| Trigger (step 2) | CLV >= +0.25 (strong close) | CLV <= -0.25 (weak close) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Confirmation (optional, default off) | Next close > signal-bar High | Next close < signal-bar Low |
 
