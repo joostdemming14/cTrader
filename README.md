@@ -1,0 +1,86 @@
+# cTrader Scanner Suite
+
+Alert-only cTrader Automate (cAlgo) scanners for daily bars. Both scanners evaluate the **last completed daily bar** (no repaint), report the setup only, and place no trades. Entry = next open. No SL/PT is computed. `AccessRights.None`.
+
+## Projects
+
+| Folder | Algo | Purpose |
+|---|---|---|
+| `ReversalScanner/` | `ReversalScanner` cBot | Fade extended moves that roll over (blow-off / capitulation) |
+| `ContinuationScanner/` | `ContinuationScanner` cBot | Trade trend resumptions after a pullback to EMA21 |
+| `TradeManager/` | `TradeManager` cBot | Daily account-wide pending-order cancellation and PPO-based position exits |
+| `SupportResistance/` | `SupportResistance` indicator | Support/resistance levels (separate, unchanged) |
+| `PpoReversalScanner/` | reference only | Legacy PPO-cross scanner. Does **not** build in this repo (links to projects that are not present). Kept as a reference; do not use |
+
+Each scanner has a pure C# engine (`ReversalEngine.cs` / `ContinuationEngine.cs`) with no cAlgo dependencies, so the signal logic is unit-testable and deterministic. `ContinuationScanner.csproj` links `ReversalEngine.cs` from the ReversalScanner folder for shared indicator math, scheduling, and enum types.
+
+`TradeManager` is separate from both scanners. It checks once per daily close, applies the SPY/VIX macro gate only to US-equity pending orders, applies the BTC/SMA crypto macro gate only to configured crypto pending orders, cancels unfilled orders on a symbol-specific PPO cross or already-reached order TP, and closes positions only on a symbol-specific PPO cross. It never modifies orders or position SL/TP. PPO exits wait for spread <= 0.05 ATR or force a market close after the configured delay.
+
+## Signal logic (both scanners, daily EOD bars)
+
+Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter, ATR(14) Wilder, PPO(12,26,9), CLV**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
+
+### Reversal (ReversalScanner)
+
+Reversals use only the latest completed signal bar; there is no structural lookback. The optional next-bar confirmation must close beyond the signal bar high/low.
+
+| | Long Reversal | Short Reversal |
+|---|---|---|
+| Break | Close > lowest Low | Close < highest High |
+| Close location | CLV >= +0.25 | CLV <= -0.25 |
+| EMA extension | Close < EMA21 - 2.0*ATR | Close > EMA21 + 2.0*ATR |
+| Trend filter | Close > SMA200 | Close < SMA200 |
+| Momentum | PPO > PPOsig | PPO < PPOsig |
+| Confirmation | Next close > signal-bar High | Next close < signal-bar Low |
+
+### Continuation (ContinuationScanner)
+
+| | Long Continuation | Short Continuation |
+|---|---|---|
+| EMA21 touch | Latest bar Low <= EMA21 | Latest bar High >= EMA21 |
+| Trend alignment | EMA21 > EMA50 | EMA21 < EMA50 |
+| Trigger | Close > EMA21 (reclaim) | Close < EMA21 (breakdown) |
+| Trend filter | Close > SMA200 | Close < SMA200 |
+| Close location | CLV >= +0.25 | CLV <= -0.25 |
+| Momentum | PPO > PPOsig | PPO < PPOsig |
+
+## Market-wide gates (once per scan pass)
+
+| Gate | Scope | Rule | On missing data |
+|---|---|---|---|
+| SPY benchmark (group 4) | US equities (`.US`) only | `BenchmarkBufferAtr` defaults to 0.5: longs are blocked only below SPY SMA50 - 0.5x SPY ATR; shorts only above SMA50 + 0.5x ATR. Inside the band both sides are allowed | Bypassed (both sides allowed) |
+| VIX long block (group 4b) | US equities only | Last completed VIX close > 25 blocks longs; shorts never blocked | Bypassed |
+| Crypto benchmark (group 4c) | Configured crypto list only | Uses the same `BenchmarkBufferAtr` band: live BTC below BTC SMA50 - buffer blocks longs; above SMA50 + buffer blocks shorts; SMA/ATR use completed BTC daily bars | Bypassed |
+
+Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by design. The crypto universe is a comma-separated parameter; spacing is ignored (`BTC EUR` matches `BTCEUR`).
+
+## Pass-level re-verification
+
+A trigger uses the latest completed daily bar by default (`Max Setup Age = 0`). Every scan pass re-checks it on the last completed bar; the live BTC quote remains the deliberate exception for the crypto regime gate:
+
+- **PPO intact**: a long whose PPO crossed back below its signal (or a short above) on the last completed bar is stale and is not reported.
+- **Gates**: completed VIX/SPY regimes must allow the direction; the crypto gate compares live BTC with an SMA of completed BTC bars.
+
+Both scanners evaluate only the latest completed daily bar. Continuations require that same bar to touch EMA21 and close with the required reclaim/breakdown conditions. Reversal confirmation, when enabled, uses the immediately following completed bar after the signal bar.
+
+Whether the live price is still tradeable is not checked by the scanner; the trader checks it manually before entering.
+
+Alerts fire at most once per completed signal bar (identity = bar open time), so repeated passes never re-notify an unchanged setup.
+
+## Scan architecture
+
+- Watchlist-driven (default `Screener`), scanned in batches (default 20 symbols per timer tick) to keep the UI responsive.
+- Scheduling: `DailyAfterClose` (default, 16:00 ET + 2s), `Hourly`, `Every15Minutes`, `CustomInterval`, `ManualOnly` plus an on-chart SCAN NOW button.
+- No-repaint bar selection: every signal and VIX/SPY/BTC SMA uses a completed daily bar; US equities use session logic and unknown market state is handled conservatively.
+- On-chart HUD: gate states, progress, active setups with live ATR P&L, recent alerts.
+
+## Build
+
+Requires the .NET SDK and the `cTrader.Automate` NuGet package (restored automatically):
+
+```
+dotnet build ReversalScanner/ReversalScanner.csproj
+dotnet build ContinuationScanner/ContinuationScanner.csproj
+```
+
+The engine files (`ReversalEngine.cs`, `ContinuationEngine.cs`) are plain C# and compile in any .NET 6+ project without the cTrader package, which makes the signal logic easy to unit-test outside the platform.
