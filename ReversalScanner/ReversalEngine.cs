@@ -270,6 +270,60 @@ namespace cAlgo
             return (ppo, ppoSig);
         }
 
+        /// <summary>
+        /// True Strength Index (William Blau, standard formula):
+        ///   PC      = Close - Close[1]            (price change; PC[0] = 0 by convention)
+        ///   TSI     = 100 * EMA(short, EMA(long, PC)) / EMA(short, EMA(long, |PC|))
+        ///   TSIsig  = EMA(signal, TSI)
+        /// Defaults: long = 25, short = 13, signal = 13. The TSI value is bounded to
+        /// (-100, +100); warmup bars and a zero smoothed-|PC| denominator yield double.NaN.
+        /// </summary>
+        public static (double[] Tsi, double[] TsiSig) ComputeTsi(IReadOnlyList<double> closes, int longPeriod, int shortPeriod, int signalPeriod)
+        {
+            if (closes == null) throw new ArgumentNullException(nameof(closes));
+            if (longPeriod < 1) throw new ArgumentOutOfRangeException(nameof(longPeriod));
+            if (shortPeriod < 1) throw new ArgumentOutOfRangeException(nameof(shortPeriod));
+            if (signalPeriod < 1) throw new ArgumentOutOfRangeException(nameof(signalPeriod));
+
+            int n = closes.Count;
+            double[] tsi = new double[n];
+            double[] tsiSig = new double[n];
+            for (int i = 0; i < n; i++) { tsi[i] = double.NaN; tsiSig[i] = double.NaN; }
+            if (n < 2) return (tsi, tsiSig);
+
+            double[] pc = new double[n];
+            double[] absPc = new double[n];
+            pc[0] = 0.0;
+            absPc[0] = 0.0;
+            for (int i = 1; i < n; i++)
+            {
+                if (double.IsNaN(closes[i]) || double.IsNaN(closes[i - 1]))
+                {
+                    pc[i] = double.NaN;
+                    absPc[i] = double.NaN;
+                }
+                else
+                {
+                    pc[i] = closes[i] - closes[i - 1];
+                    absPc[i] = Math.Abs(pc[i]);
+                }
+            }
+
+            double[] num = ComputeEma(ComputeEma(pc, longPeriod), shortPeriod);
+            double[] den = ComputeEma(ComputeEma(absPc, longPeriod), shortPeriod);
+
+            for (int i = 0; i < n; i++)
+            {
+                double nu = num[i], de = den[i];
+                if (double.IsNaN(nu) || double.IsNaN(de) || de <= 1e-12)
+                    continue;
+                tsi[i] = 100.0 * nu / de;
+            }
+
+            tsiSig = ComputeEma(tsi, signalPeriod);
+            return (tsi, tsiSig);
+        }
+
         // =========================================================================
         // --- 2. REVERSAL SETUP EVALUATION ---
         // =========================================================================

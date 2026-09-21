@@ -11,15 +11,16 @@ namespace cAlgo
     /// <summary>
     /// Continuation Scanner for the cTrader 2.0 suite (Daily bars, EOD signals, entry next open).
     ///
-    /// Final no-RSI continuation logic:
-    ///   Long Continuation: some bar in the trailing lookback bars touches Low &lt;= EMA50, then the trigger bar
-    ///     closes &gt; EMA21 with EMA21 &gt; EMA50, CLV &gt;= +0.35, PPO &gt; PPOsig, and SPY &gt; SPY_SMA50.
-    ///   Short Continuation: some bar in the trailing lookback bars touches High &gt;= EMA50, then the trigger bar
-    ///     closes &lt; EMA21 with EMA21 &lt; EMA50, CLV &lt;= -0.35, PPO &lt; PPOsig, and SPY &lt; SPY_SMA50.
+    /// Final continuation logic:
+    ///   Long Continuation: the latest completed bar touches Low &lt;= EMA21, then closes &gt; EMA21 with
+    ///     EMA21 &gt; EMA50, CLV &gt;= +0.25, TSI &gt; 0 (momentum regime), and SPY &gt; SPY_SMA50.
+    ///   Short Continuation: the latest completed bar touches High &gt;= EMA21, then closes &lt; EMA21 with
+    ///     EMA21 &lt; EMA50, CLV &lt;= -0.25, TSI &lt; 0 (momentum regime), and SPY &lt; SPY_SMA50.
     ///
-    /// PPO on the trigger bar is the decisive momentum check. RSI is intentionally not used.
+    /// The TSI zero line is the decisive momentum regime check; the TSI signal line is computed
+    /// for display only and is not part of the trigger. RSI is intentionally not used.
     /// Continuations additionally require the SMA200 long-term trend filter (Close > SMA200 for
-    /// longs, Close < SMA200 for shorts). Reversals do not use SMA200.
+    /// longs, Close < SMA200 for shorts).
     ///
     /// All conditions are evaluated on the close of the last completed daily bar (no repaint).
     /// Alert-only scanner: reports the setup only (no SL/PT computed). No trades placed. AccessRights = None.
@@ -72,14 +73,14 @@ namespace cAlgo
         [Parameter("ATR Period", Group = "2. Indicators", DefaultValue = 14, MinValue = 1)]
         public int AtrPeriod { get; set; } = 14;
 
-        [Parameter("PPO Fast (EMA)", Group = "2. Indicators", DefaultValue = 16, MinValue = 2)]
-        public int PpoFastPeriod { get; set; } = 12;
+        [Parameter("TSI Long EMA", Group = "2. Indicators", DefaultValue = 25, MinValue = 1)]
+        public int TsiLongPeriod { get; set; } = 25;
 
-        [Parameter("PPO Slow (EMA)", Group = "2. Indicators", DefaultValue = 32, MinValue = 5)]
-        public int PpoSlowPeriod { get; set; } = 26;
+        [Parameter("TSI Short EMA", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
+        public int TsiShortPeriod { get; set; } = 13;
 
-        [Parameter("PPO Signal (EMA)", Group = "2. Indicators", DefaultValue = 9, MinValue = 1)]
-        public int PpoSignalPeriod { get; set; } = 9;
+        [Parameter("TSI Signal (EMA)", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
+        public int TsiSignalPeriod { get; set; } = 13;
 
         // =========================================================================
         // --- 3. Continuation Thresholds ---
@@ -151,8 +152,8 @@ namespace cAlgo
             public DateTime SignalBarTime { get; set; }
             public double Close { get; set; }
             public double Clv { get; set; }
-            public double Ppo { get; set; }
-            public double PpoSig { get; set; }
+            public double Tsi { get; set; }
+            public double TsiSig { get; set; }
             public double Ema50 { get; set; }
             public double Sma200 { get; set; }
             public double Atr { get; set; }
@@ -173,7 +174,7 @@ namespace cAlgo
             public double[] SlowEma50 { get; init; } = Array.Empty<double>();
             public double[] Sma200 { get; init; } = Array.Empty<double>();
             public double[] Atr { get; init; } = Array.Empty<double>();
-            public (double[] Ppo, double[] PpoSig) Ppo { get; init; }
+            public (double[] Tsi, double[] TsiSig) Tsi { get; init; }
         }
 
         // State tracking
@@ -246,7 +247,7 @@ namespace cAlgo
 
             Print($"[ContinuationScanner] Started. Watchlist '{WatchlistName}' loaded with {_watchlistSymbols.Count} symbols.");
             Print($"[ContinuationScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
-            Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | PPO({PpoFastPeriod},{PpoSlowPeriod},{PpoSignalPeriod}) | No lookback. (No RSI — PPO on trigger bar only.)");
+            Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | No lookback. (No RSI — TSI zero-line regime on trigger bar only; signal line display-only.)");
             Print($"[ContinuationScanner] Thresholds: CLV +-{ClvThreshold:F2}. No SL/PT computed (alert-only).");
             Print($"[ContinuationScanner] Latest closed bar must touch EMA21 and reclaim/break it. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
             Print($"[ContinuationScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
@@ -495,7 +496,7 @@ namespace cAlgo
                 return (false, false);
             }
 
-            int required = Math.Max(MinBarsToScan, Sma200Period + PpoSlowPeriod + PpoSignalPeriod + 20);
+            int required = Math.Max(MinBarsToScan, Sma200Period + TsiLongPeriod + TsiShortPeriod + 20);
             var bars = EnsureBarsLoaded(TimeFrame.Daily, symbolName, required);
             if (bars == null)
             {
@@ -512,7 +513,7 @@ namespace cAlgo
             // session boundary, but it can never re-enable scanning of a live bar.
             int targetIdx = GetLastCompletedDailyBarIndex(bars, symbolName);
 
-            if (targetIdx < 0 || targetIdx < Sma200Period + PpoSlowPeriod + PpoSignalPeriod)
+            if (targetIdx < 0 || targetIdx < Sma200Period + TsiLongPeriod + TsiShortPeriod)
             {
                 RecordSkip(symbolName, $"No completed daily bar with sufficient warmup (target index {targetIdx})");
                 return (false, false);
@@ -544,7 +545,7 @@ namespace cAlgo
                     SlowEma50 = ReversalEngine.ComputeEma(newCloses, TrendEmaPeriod),
                     Sma200 = ReversalEngine.ComputeSma(newCloses, Sma200Period),
                     Atr = ReversalEngine.ComputeAtr(newHighs, newLows, newCloses, AtrPeriod),
-                    Ppo = ReversalEngine.ComputePpo(newCloses, PpoFastPeriod, PpoSlowPeriod, PpoSignalPeriod)
+                    Tsi = ReversalEngine.ComputeTsi(newCloses, TsiLongPeriod, TsiShortPeriod, TsiSignalPeriod)
                 };
                 _indicatorCache[symbolName] = snapshot;
             }
@@ -556,7 +557,7 @@ namespace cAlgo
             double[] slowEma50 = snapshot.SlowEma50;
             double[] sma200 = snapshot.Sma200;
             double[] atr = snapshot.Atr;
-            var ppo = snapshot.Ppo;
+            var tsi = snapshot.Tsi;
 
             // Scan back a few bars so freshly-triggered setups are not missed.
             bool alertFired = false;
@@ -568,7 +569,7 @@ namespace cAlgo
 
             int evalIdx = targetIdx;
             {
-                var res = ContinuationEngine.Evaluate(closes, highs, lows, ppo.Ppo, ppo.PpoSig,
+                var res = ContinuationEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig,
                     ema50, slowEma50, sma200, atr, evalIdx, AllowedDirection,
                     ClvThreshold, spyLongForSymbol, spyShortForSymbol);
 
@@ -579,7 +580,7 @@ namespace cAlgo
                 else
                 {
                     var armed = BuildArmedSetup(symbolName, res, bars, evalIdx);
-                    if (IsSetupStillValid(armed, symbolName, ppo.Ppo, ppo.PpoSig, closes, atr, targetIdx))
+                    if (IsSetupStillValid(armed, symbolName, tsi.Tsi, tsi.TsiSig, closes, atr, targetIdx))
                         bestSetup = armed;
                 }
             }
@@ -615,7 +616,7 @@ namespace cAlgo
         }
 
         private bool IsSetupStillValid(ArmedContinuationSetup setup, string symbolName,
-            double[] ppo, double[] ppoSig, double[] closes, double[] atr, int targetIdx)
+            double[] tsi, double[] tsiSig, double[] closes, double[] atr, int targetIdx)
         {
             if (setup.Direction == ReversalDirection.Long &&
                 RequireVixFilter && IsUsEquitySymbol(symbolName) && !_vixLongOk)
@@ -638,21 +639,21 @@ namespace cAlgo
                 }
             }
 
-            double livePpo = ppo[targetIdx];
-            double livePpoSig = ppoSig[targetIdx];
-            if (double.IsNaN(livePpo) || double.IsNaN(livePpoSig))
+            double liveTsi = tsi[targetIdx];
+            double liveTsiSig = tsiSig[targetIdx];
+            if (double.IsNaN(liveTsi) || double.IsNaN(liveTsiSig))
             {
-                RecordReject("Live PPO NaN on last closed bar — cannot confirm momentum intact");
+                RecordReject("Live TSI NaN on last closed bar — cannot confirm momentum regime");
                 return false;
             }
-            if (setup.Direction == ReversalDirection.Long && !(livePpo > livePpoSig))
+            if (setup.Direction == ReversalDirection.Long && !(liveTsi > 0.0))
             {
-                RecordReject($"Live PPO {livePpo:F2} not > PPOsig {livePpoSig:F2} — momentum no longer intact for long");
+                RecordReject($"Live TSI {liveTsi:F2} not > 0 — momentum regime no longer bullish");
                 return false;
             }
-            if (setup.Direction == ReversalDirection.Short && !(livePpo < livePpoSig))
+            if (setup.Direction == ReversalDirection.Short && !(liveTsi < 0.0))
             {
-                RecordReject($"Live PPO {livePpo:F2} not < PPOsig {livePpoSig:F2} — momentum no longer intact for short");
+                RecordReject($"Live TSI {liveTsi:F2} not < 0 — momentum regime no longer bearish");
                 return false;
             }
 
@@ -677,8 +678,8 @@ namespace cAlgo
                 SignalBarTime = bars.OpenTimes[triggerIdx],
                 Close = res.Close,
                 Clv = res.Clv,
-                Ppo = res.Ppo,
-                PpoSig = res.PpoSig,
+                Tsi = res.Tsi,
+                TsiSig = res.TsiSig,
                 Ema50 = res.Ema50,
                 Sma200 = res.Sma200,
                 Atr = res.Atr,
@@ -700,12 +701,12 @@ namespace cAlgo
             var sb = new StringBuilder();
             sb.AppendLine($"{dir} CONTINUATION SETUP — {symbolName} [{dateTag}]");
             sb.AppendLine($"  EMA21 touch and trigger bar #{s.TriggerIndex}");
-            sb.AppendLine($"  Close: {s.Close:F4} | CLV: {s.Clv:F2} | PPO: {s.Ppo:F2} vs sig {s.PpoSig:F2}");
+            sb.AppendLine($"  Close: {s.Close:F4} | CLV: {s.Clv:F2} | TSI: {s.Tsi:F2} (regime >0/<0; sig {s.TsiSig:F2} display-only)");
             sb.AppendLine($"  EMA21: {s.Ema50:F4} | SMA200: {s.Sma200:F4} | ATR: {s.Atr:F4} | Live: {s.LivePrice:F4}");
             sb.AppendLine($"  ENTRY: next open (scanner reports the setup only; no SL/PT computed)");
             string detail = sb.ToString();
 
-            string shortMsg = $"[{now:HH:mm}] {symbolName} {dir} CONT | CLV {s.Clv:F2} PPO {s.Ppo:F2}/{s.PpoSig:F2} Dist {s.DistanceAtr:F2} ATR";
+            string shortMsg = $"[{now:HH:mm}] {symbolName} {dir} CONT | CLV {s.Clv:F2} TSI {s.Tsi:F2} (sig {s.TsiSig:F2}) Dist {s.DistanceAtr:F2} ATR";
             _recentAlertMessages.Insert(0, shortMsg);
             if (_recentAlertMessages.Count > 6) _recentAlertMessages.RemoveAt(_recentAlertMessages.Count - 1);
 
@@ -1118,7 +1119,7 @@ namespace cAlgo
             var sb = new StringBuilder();
             sb.AppendLine("=== CONTINUATION SCANNER (Daily, EOD signals, entry next open) ===");
             sb.AppendLine($"Watchlist: {WatchlistName} ({totalCount} symbols) | Trigger: {ScheduleMode} | Direction: {AllowedDirection}");
-            sb.AppendLine($"EMA({EmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | PPO({PpoFastPeriod},{PpoSlowPeriod},{PpoSignalPeriod}) | No lookback | No RSI");
+            sb.AppendLine($"EMA({EmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | No lookback | No RSI");
             sb.AppendLine($"Thresholds: CLV +-{ClvThreshold:F2} | No SL/PT");
             sb.AppendLine($"Benchmark: {spyStatus} | {_spyDetail}");
             sb.AppendLine($"VIX: {vixStatus} | {_vixDetail}");
@@ -1140,7 +1141,7 @@ namespace cAlgo
                     double atrPnl = item.Atr > 0 ? (diff / item.Atr) : 0.0;
                     string pnlSign = atrPnl >= 0 ? "+" : "";
                     string dateTag = item.SignalBarTime != DateTime.MinValue ? item.SignalBarTime.ToString("yyyy-MM-dd") : "?";
-                    sb.AppendLine($"[{dir}] {item.Symbol,-8} | {dateTag} | Live: {item.LivePrice:F4} ({pnlSign}{atrPnl:F2} ATR) | CLV: {item.Clv:F2} | PPO: {item.Ppo:F2}/{item.PpoSig:F2} | EMA21: {item.Ema50:F4} | SMA200: {item.Sma200:F4} | Dist: {item.DistanceAtr:F2} ATR");
+                    sb.AppendLine($"[{dir}] {item.Symbol,-8} | {dateTag} | Live: {item.LivePrice:F4} ({pnlSign}{atrPnl:F2} ATR) | CLV: {item.Clv:F2} | TSI: {item.Tsi:F2} (sig {item.TsiSig:F2}) | EMA21: {item.Ema50:F4} | SMA200: {item.Sma200:F4} | Dist: {item.DistanceAtr:F2} ATR");
                 }
             }
             else

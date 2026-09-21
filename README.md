@@ -9,6 +9,7 @@ Alert-only cTrader Automate (cAlgo) scanners for daily bars. Both scanners evalu
 | `ReversalScanner/` | `ReversalScanner` cBot | Fade extended moves that roll over (blow-off / capitulation) |
 | `ContinuationScanner/` | `ContinuationScanner` cBot | Trade trend resumptions after a pullback to EMA21 |
 | `TradeManager/` | `TradeManager` cBot | Daily account-wide pending-order cancellation and PPO-based position exits |
+| `TrueStrengthIndex/` | `TrueStrengthIndex` indicator | Blau TSI oscillator (25/13/13) with optional signal line and zero-line regime | 
 | `SupportResistance/` | `SupportResistance` indicator | Support/resistance levels (separate, unchanged) |
 | `PpoReversalScanner/` | reference only | Legacy PPO-cross scanner. Does **not** build in this repo (links to projects that are not present). Kept as a reference; do not use |
 
@@ -18,7 +19,7 @@ Each scanner has a pure C# engine (`ReversalEngine.cs` / `ContinuationEngine.cs`
 
 ## Signal logic (both scanners, daily EOD bars)
 
-Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter, ATR(14) Wilder, PPO(12,26,9), CLV**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
+Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter, ATR(14) Wilder, CLV** plus momentum: **PPO(12,26,9) for reversals, TSI(25,13,13) zero-line regime for continuations**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
 
 ### Reversal (ReversalScanner)
 
@@ -42,7 +43,9 @@ Reversals use only the latest completed signal bar; there is no structural lookb
 | Trigger | Close > EMA21 (reclaim) | Close < EMA21 (breakdown) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Close location | CLV >= +0.25 | CLV <= -0.25 |
-| Momentum | PPO > PPOsig | PPO < PPOsig |
+| Momentum regime | TSI > 0 | TSI < 0 |
+
+The continuation momentum gate is regime-only: the TSI zero line decides, and the TSI signal line (EMA 13 of TSI) is computed for display but is not part of the trigger. The `TrueStrengthIndex` indicator plots both lines so the regime can be checked visually.
 
 ## Market-wide gates (once per scan pass)
 
@@ -58,7 +61,7 @@ Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by desi
 
 A trigger uses the latest completed daily bar by default (`Max Setup Age = 0`). Every scan pass re-checks it on the last completed bar; the live BTC quote remains the deliberate exception for the crypto regime gate:
 
-- **PPO intact**: a long whose PPO crossed back below its signal (or a short above) on the last completed bar is stale and is not reported.
+- **Momentum intact**: a reversal long whose PPO crossed back below its signal (or a short above) on the last completed bar is stale and is not reported; a continuation long whose TSI fell back below zero (or a short above zero) is stale and is not reported.
 - **Gates**: completed VIX/SPY regimes must allow the direction; the crypto gate compares live BTC with an SMA of completed BTC bars.
 
 Both scanners evaluate only the latest completed daily bar. Continuations require that same bar to touch EMA21 and close with the required reclaim/breakdown conditions. Reversal confirmation, when enabled, uses the immediately following completed bar after the signal bar.
