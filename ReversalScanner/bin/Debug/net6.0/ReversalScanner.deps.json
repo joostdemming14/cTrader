@@ -1,0 +1,41 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v6.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v6.0": {
+      "ReversalScanner/1.0.0": {
+        "dependencies": {
+          "cTrader.Automate": "1.0.21"
+        },
+        "runtime": {
+          "ReversalScanner.dll": {}
+        }
+      },
+      "cTrader.Automate/1.0.21": {
+        "runtime": {
+          "lib/net6.0/cAlgo.API.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "ReversalScanner/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "cTrader.Automate/1.0.21": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-jvgImJpYyeJZCxNzuYyaC0SjTT7+gQOO25oSV58JbMJ+QBssd6FYK+psonE3o1bDCXSbi0wPR1OLleYf3aFXBg==",
+      "path": "ctrader.automate/1.0.21",
+      "hashPath": "ctrader.automate.1.0.21.nupkg.sha512"
+    }
+  }
+}

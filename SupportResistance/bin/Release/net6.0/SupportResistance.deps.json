@@ -1,0 +1,42 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v6.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v6.0": {
+      "SupportResistance/1.0.0": {
+        "dependencies": {
+          "cTrader.Automate": "1.0.20"
+        },
+        "runtime": {
+          "SupportResistance.dll": {}
+        }
+      },
+      "cTrader.Automate/1.0.20": {
+        "runtime": {
+          "lib/net6.0/cAlgo.API.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0",
+            "localPath": "cAlgo.API.dll"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "SupportResistance/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "cTrader.Automate/1.0.20": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-ZrDN0xzd0LG0bFL9GkI8/Q33K8sZRn+hUxsL4gN+4ZTL2/quKNAnvi4DndDhvEnLL7nZftEkW4KmBmsc+4h7zg==",
+      "path": "ctrader.automate/1.0.20",
+      "hashPath": "ctrader.automate.1.0.20.nupkg.sha512"
+    }
+  }
+}
