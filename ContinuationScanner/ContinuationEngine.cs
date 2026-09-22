@@ -91,12 +91,12 @@ namespace cAlgo
     /// Long Continuation trigger on bar t:
     ///   Low <= EMA21 on the trigger bar, then Close > EMA21, EMA21 > EMA50, Close > SMA200,
     ///   CLV >= +clvMin, TSI > 0 (momentum regime), no price/TSI divergence over divergenceGuardBars
-    ///   (price up while TSI down), SPY > SPY_SMA50.
+    ///   (price up while TSI down). SPY gate optional (default off).
     ///
     /// Short Continuation trigger on bar t:
     ///   High >= EMA21 on the trigger bar, then Close < EMA21, EMA21 < EMA50, Close < SMA200,
     ///   CLV <= -clvMin, TSI < 0 (momentum regime), no price/TSI divergence over divergenceGuardBars
-    ///   (price down while TSI up), SPY < SPY_SMA50.
+    ///   (price down while TSI up). SPY gate optional (default off).
     ///
     /// Momentum is regime-only: the TSI zero line decides, the TSI signal line is not part of the
     /// continuation trigger (it is computed for display only). The scanner does not compute SL/PT (alert-only).
@@ -164,7 +164,7 @@ namespace cAlgo
         /// <summary>
         /// Evaluates a Short Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
         /// Mirror of <see cref="EvaluateLongContinuation"/>: High >= EMA21 on the trigger bar,
-        /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, CLV <= -clvMin, TSI < 0, SPY < SPY_SMA50.
+        /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, CLV <= -clvMin, TSI < 0. SPY gate optional (default off).
         /// </summary>
         public static ContinuationSetupResult EvaluateShortContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
