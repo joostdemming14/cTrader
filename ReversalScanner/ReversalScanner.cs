@@ -16,9 +16,9 @@ namespace cAlgo
     ///     with TSI at least 1.0 below the TSI at the reference extreme (bearish divergence). The
     ///     REFERENCE TSI must have been &gt; +10 (a genuinely strong prior move; a bear-market rally
     ///     from -30 to +10 qualifies); the new extreme's own TSI is unconstrained.
-    ///     Trigger: CLV &lt;= -0.35 (weak close), SPY &lt; SPY_SMA50.
+    ///     Trigger: CLV &lt;= -0.35 (weak close). SPY gate optional (default off).
     ///   Long Reversal trigger: fresh lookback Low with TSI at least 1.0 above the reference extreme
-    ///     TSI (reference &lt; -10), CLV &gt;= +0.35, SPY &gt; SPY_SMA50.
+    ///     TSI (reference &lt; -10), CLV &gt;= +0.35. SPY gate optional (default off).
     ///
     /// Two-step trigger: the divergence is detected on any bar in the last `TriggerWindow` bars
     /// (including the signal bar itself), and the TRIGGER is the weak close (CLV) on the signal
@@ -117,8 +117,8 @@ namespace cAlgo
         // =========================================================================
         // --- 4. Benchmark (SPY) Filter ---
         // =========================================================================
-        [Parameter("Require Benchmark Filter (SPY vs SMA50)", Group = "4. Benchmark Filter", DefaultValue = true)]
-        public bool RequireBenchmarkFilter { get; set; } = true;
+        [Parameter("Require Benchmark Filter (SPY vs SMA50)", Group = "4. Benchmark Filter", DefaultValue = false)]
+        public bool RequireBenchmarkFilter { get; set; } = false;
 
         [Parameter("Benchmark Symbol", Group = "4. Benchmark Filter", DefaultValue = "SPY.US")]
         public string BenchmarkSymbol { get; set; } = "SPY.US";

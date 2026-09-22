@@ -50,7 +50,7 @@ The continuation momentum gate is regime-only: the TSI zero line decides, and th
 
 | Gate | Scope | Rule | On missing data |
 |---|---|---|---|
-| SPY benchmark (group 4) | US equities (`.US`) only | `BenchmarkBufferAtr` defaults to 0.5: longs are blocked only below SPY SMA50 - 0.5x SPY ATR; shorts only above SMA50 + 0.5x ATR. Inside the band both sides are allowed | Bypassed (both sides allowed) |
+| SPY benchmark (group 4) | US equities (`.US`) only | `BenchmarkBufferAtr` defaults to 0.5: longs are blocked only below SPY SMA50 - 0.5x SPY ATR; shorts only above SMA50 + 0.5x ATR. Inside the band both sides are allowed. ContinuationScanner defaults it ON (trend alignment); ReversalScanner defaults it OFF — contrarian setups supply their own regime via the symbol's SMA200 trend filter plus the TSI divergence trigger, and a market-trend gate would block exactly the strongest relative-weakness shorts (fresh high under the 200-SMA) | Bypassed (both sides allowed) |
 | VIX long block (group 4b) | US equities only | Last completed VIX close > 25 blocks longs; shorts never blocked | Bypassed |
 | Crypto benchmark (group 4c) | Configured crypto list only | Uses the same `BenchmarkBufferAtr` band: live BTC below BTC SMA50 - buffer blocks longs; above SMA50 + buffer blocks shorts; SMA/ATR use completed BTC daily bars | Bypassed |
 
@@ -61,7 +61,7 @@ Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by desi
 A trigger uses the latest completed daily bar by default (`Max Setup Age = 0`). Every scan pass re-checks it on the last completed bar; the live BTC quote remains the deliberate exception for the crypto regime gate:
 
 - **Momentum intact**: a reversal long whose TSI no longer sits at least the minimum drop below its reference TSI (or a short above) is stale and is not reported; a continuation long whose TSI fell back below zero (or a short above zero) is stale and is not reported.
-- **Gates**: completed VIX/SPY regimes must allow the direction; the crypto gate compares live BTC with an SMA of completed BTC bars.
+- **Gates**: completed VIX (long-block) and SPY (continuations only, reversals default off) regimes must allow the direction; the crypto gate compares live BTC with an SMA of completed BTC bars.
 
 Both scanners evaluate only the latest completed daily bar. Continuations require that same bar to touch EMA21 and close with the required reclaim/breakdown conditions. Reversal confirmation, when enabled, uses the immediately following completed bar after the signal bar.
 
