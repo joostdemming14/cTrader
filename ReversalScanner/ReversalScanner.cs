@@ -14,10 +14,11 @@ namespace cAlgo
     /// Final trigger logic (TSI divergence, no pivot confirmation lag):
     ///   Short Reversal trigger: fresh lookback High (vs the reference High at least MinGap bars back)
     ///     with TSI at least 1.0 below the TSI at the reference extreme (bearish divergence). The
-    ///     REFERENCE TSI must have been &gt; +20 (strong prior move); the new extreme's own TSI is
-    ///     unconstrained. Trigger: CLV &lt;= -0.25 (weak close), SPY &lt; SPY_SMA50.
+    ///     REFERENCE TSI must have been &gt; +10 (a genuinely strong prior move; a bear-market rally
+    ///     from -30 to +10 qualifies); the new extreme's own TSI is unconstrained.
+    ///     Trigger: CLV &lt;= -0.25 (weak close), SPY &lt; SPY_SMA50.
     ///   Long Reversal trigger: fresh lookback Low with TSI at least 1.0 above the reference extreme
-    ///     TSI (reference &lt; -20), CLV &gt;= +0.25, SPY &gt; SPY_SMA50.
+    ///     TSI (reference &lt; -10), CLV &gt;= +0.25, SPY &gt; SPY_SMA50.
     ///
     /// Two-step trigger: the divergence is detected on any bar in the last `TriggerWindow` bars
     /// (including the signal bar itself), and the TRIGGER is the weak close (CLV) on the signal
@@ -95,8 +96,8 @@ namespace cAlgo
         [Parameter("Divergence Min Gap (bars)", Group = "3. Reversal Thresholds", DefaultValue = 5, MinValue = 1)]
         public int DivergenceMinGap { get; set; } = 5;
 
-        [Parameter("TSI Extreme Level (abs)", Group = "3. Reversal Thresholds", DefaultValue = 20.0, MinValue = 0.0, MaxValue = 100.0, Step = 1.0)]
-        public double TsiExtremeLevel { get; set; } = 20.0;
+        [Parameter("TSI Extreme Level (abs)", Group = "3. Reversal Thresholds", DefaultValue = 10.0, MinValue = 0.0, MaxValue = 100.0, Step = 1.0)]
+        public double TsiExtremeLevel { get; set; } = 10.0;
 
         [Parameter("Min TSI Divergence Drop", Group = "3. Reversal Thresholds", DefaultValue = 1.0, MinValue = 0.0, MaxValue = 100.0, Step = 0.01)]
         public double MinTsiDivergenceDrop { get; set; } = 1.0;
