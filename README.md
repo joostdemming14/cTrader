@@ -52,7 +52,7 @@ The continuation momentum gate is regime-only: the TSI zero line decides, and th
 |---|---|---|---|
 | SPY benchmark (group 4) | US equities (`.US`) only | `BenchmarkBufferAtr` defaults to 0.5: longs are blocked only below SPY SMA50 - 0.5x SPY ATR; shorts only above SMA50 + 0.5x ATR. Inside the band both sides are allowed. Both scanners default it OFF: reversals are contrarian (the symbol's own SMA200 + TSI divergence supply the regime); continuations carry their own trend regime via EMA21/EMA50 alignment and the symbol SMA200, so a market-trend proxy only blocked strong leaders pulling back through a shallow market dip | Bypassed (both sides allowed) |
 | VIX long block (group 4b) | US equities only | Last completed VIX close > 25 blocks longs; shorts never blocked | Bypassed |
-| Crypto benchmark (group 4c) | Configured crypto list only | Uses the same `BenchmarkBufferAtr` band: live BTC below BTC SMA50 - buffer blocks longs; above SMA50 + buffer blocks shorts; SMA/ATR use completed BTC daily bars | Bypassed |
+| Crypto benchmark (group 4c) | Configured crypto list only | Uses the same `BenchmarkBufferAtr` band: live BTC below BTC SMA50 - buffer blocks longs; above SMA50 + buffer blocks shorts; SMA/ATR use completed BTC daily bars. Default OFF on both scanners: the symbol's own SMA200/EMA/TSI regime carries the setup, so a BTC proxy only blocked alts showing relative strength/weakness independent of BTC | Bypassed |
 
 Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by design. The crypto universe is a comma-separated parameter; spacing is ignored (`BTC EUR` matches `BTCEUR`).
 
@@ -61,7 +61,7 @@ Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by desi
 A trigger uses the latest completed daily bar by default (`Max Setup Age = 0`). Every scan pass re-checks it on the last completed bar; the live BTC quote remains the deliberate exception for the crypto regime gate:
 
 - **Momentum intact**: a reversal long whose TSI no longer sits at least the minimum drop below its reference TSI (or a short above) is stale and is not reported; a continuation long whose TSI fell back below zero (or a short above zero) is stale and is not reported.
-- **Gates**: completed VIX (long-block) regime must allow the direction (SPY-SMA50 gate default off on both scanners, still available as parameter); the crypto gate compares live BTC with an SMA of completed BTC bars.
+- **Gates**: the completed VIX (long-block) regime is the only market gate left ON by default. The SPY-SMA50 and BTC-SMA gates are default OFF on both scanners (still available as parameters); when enabled, the crypto gate compares live BTC with an SMA of completed BTC bars.
 
 Both scanners evaluate only the latest completed daily bar. Continuations require that same bar to touch EMA21 and close with the required reclaim/breakdown conditions. Reversal confirmation, when enabled, uses the immediately following completed bar after the signal bar.
 

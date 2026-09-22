@@ -144,8 +144,8 @@ namespace cAlgo
         // =========================================================================
         // --- 4c. Crypto Benchmark (BTC vs SMA) Filter (crypto symbols only) ---
         // =========================================================================
-        [Parameter("Require Crypto Benchmark Filter (BTC vs SMA)", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = true)]
-        public bool RequireCryptoBenchmarkFilter { get; set; } = true;
+        [Parameter("Require Crypto Benchmark Filter (BTC vs SMA)", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = false)]
+        public bool RequireCryptoBenchmarkFilter { get; set; } = false;
 
         [Parameter("Crypto Benchmark Symbol", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = "BTCUSD")]
         public string CryptoBenchmarkSymbol { get; set; } = "BTCUSD";
