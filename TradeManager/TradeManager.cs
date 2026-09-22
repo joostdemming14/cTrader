@@ -9,6 +9,10 @@ namespace cAlgo
     /// <summary>
     /// Account-wide manager for pending orders and positions. It evaluates once per UTC day
     /// after the configured daily close hour, never modifies orders or position protection.
+    /// TSI zero-line exits are cross-based and tracked from the order/position creation time:
+    /// a position entered below the zero line is only closed after TSI first crossed above it
+    /// and then crossed back against the position, so a cBot restart never misses an earlier
+    /// cross, and a pending exit is disarmed when the regime recovers first.
     /// </summary>
     [Robot(AccessRights = AccessRights.None, TimeZone = TimeZones.UTC)]
     public class TradeManager : Robot
@@ -24,14 +28,14 @@ namespace cAlgo
         [Parameter("Benchmark Buffer (x ATR)", Group = "Macro Gate", DefaultValue = 0.5, MinValue = 0.0, MaxValue = 2.0, Step = 0.1)]
         public double BenchmarkBufferAtr { get; set; } = 0.5;
 
-        [Parameter("VIX Symbol", Group = "Macro Gate", DefaultValue = "VIX")]
-        public string VixSymbol { get; set; } = "VIX";
-
-        [Parameter("VIX Long Block Threshold", Group = "Macro Gate", DefaultValue = 25.0, MinValue = 1.0)]
-        public double MaxVixThreshold { get; set; } = 25.0;
+        [Parameter("Require Benchmark Filter (SPY vs SMA)", Group = "Macro Gate", DefaultValue = false)]
+        public bool RequireBenchmarkFilter { get; set; } = false;
 
         [Parameter("Crypto Benchmark Symbol", Group = "Crypto Macro Gate", DefaultValue = "BTCUSD")]
         public string CryptoBenchmarkSymbol { get; set; } = "BTCUSD";
+
+        [Parameter("Require Crypto Benchmark Filter (BTC vs SMA)", Group = "Crypto Macro Gate", DefaultValue = false)]
+        public bool RequireCryptoBenchmarkFilter { get; set; } = false;
 
         [Parameter("Crypto Benchmark SMA Period", Group = "Crypto Macro Gate", DefaultValue = 50, MinValue = 10)]
         public int CryptoBenchmarkSmaPeriod { get; set; } = 50;
@@ -64,21 +68,19 @@ namespace cAlgo
         public int AtrPeriod { get; set; } = 14;
 
         private readonly Dictionary<string, PositionExitState> _positionExitPending = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, TsiCheckResult> _tsiCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TsiSeries?> _tsiCache = new(StringComparer.OrdinalIgnoreCase);
         private DateTime _lastProcessedCloseDate = DateTime.MinValue;
         private string _resolvedBenchmarkSymbol = "SPY.US";
-        private string _resolvedVixSymbol = "VIX";
         private string _resolvedCryptoBenchmarkSymbol = "BTCUSD";
         private HashSet<string> _cryptoSymbols = new(StringComparer.OrdinalIgnoreCase);
 
         protected override void OnStart()
         {
             _resolvedBenchmarkSymbol = ResolveSymbolName(BenchmarkSymbol, "SPY.US", "SPY", "SPY.ETF");
-            _resolvedVixSymbol = ResolveSymbolName(VixSymbol, "VIX", "VIXY.US", ".VIX", "VOLX", "VXX.US");
             _resolvedCryptoBenchmarkSymbol = ResolveSymbolName(CryptoBenchmarkSymbol, "BTCUSD", "BTCEUR", "BTCGBP", "XBTUSD");
             _cryptoSymbols = ParseCryptoSymbols(CryptoSymbolsCsv);
             Timer.Start(TimeSpan.FromSeconds(30));
-            Print($"[TradeManager] Started. Daily close check at {DailyCloseHourEt:D2}:{DailyCloseMinuteEt:D2} ET. Crypto macro gate: {_resolvedCryptoBenchmarkSymbol}, {_cryptoSymbols.Count} symbols.");
+            Print($"[TradeManager] Started. Daily close check at {DailyCloseHourEt:D2}:{DailyCloseMinuteEt:D2} ET. SPY macro gate {(RequireBenchmarkFilter ? "ON" : "OFF")} | BTC macro gate {(RequireCryptoBenchmarkFilter ? $"ON ({_resolvedCryptoBenchmarkSymbol}, {_cryptoSymbols.Count} symbols)" : "OFF")} | TSI exits: zero-line cross against the direction, tracked from order/position creation.");
         }
 
         protected override void OnTimer()
@@ -103,12 +105,14 @@ namespace cAlgo
         private void ProcessDailyClose(DateTime closeDate)
         {
             _tsiCache.Clear();
-            var macro = ReadMacroGate();
-            var cryptoMacro = ReadCryptoMacroGate();
+            // Macro gates default OFF: the per-symbol TSI zero-line cross is the direction-aware
+            // cancel/exit trigger; index gates are opt-in, matching the scanner defaults.
+            var macro = RequireBenchmarkFilter ? ReadMacroGate() : MacroGate.Bypassed;
+            var cryptoMacro = RequireCryptoBenchmarkFilter ? ReadCryptoMacroGate() : MacroGate.Bypassed;
             CancelOrdersForMacro(macro, cryptoMacro);
 
             foreach (var order in PendingOrders.ToArray())
-                EvaluatePendingOrder(order, macro);
+                EvaluatePendingOrder(order);
 
             foreach (var position in Positions.ToArray())
                 DetectPositionTsiExit(position);
@@ -135,7 +139,7 @@ namespace cAlgo
             }
         }
 
-        private void EvaluatePendingOrder(PendingOrder order, MacroGate macro)
+        private void EvaluatePendingOrder(PendingOrder order)
         {
             if (!PendingOrders.Any(candidate => candidate.Id == order.Id)) return;
 
@@ -146,26 +150,40 @@ namespace cAlgo
                 return;
             }
 
-            if (TryGetTsiZeroCross(order.SymbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out _))
+            var crossState = EvaluateTsiCross(order.SymbolName, order.SubmittedTime, out _);
+            bool against = order.TradeType == TradeType.Buy
+                ? crossState == TsiCrossState.AgainstLong
+                : crossState == TsiCrossState.AgainstShort;
+            if (against)
             {
-                bool against = order.TradeType == TradeType.Buy ? crossedAgainstLong : crossedAgainstShort;
-                if (against)
-                {
-                    var result = CancelPendingOrder(order);
-                    Print($"[TradeManager] TSI-cancel order {order.Id} {order.SymbolName} {order.TradeType}: {(result.IsSuccessful ? "cancelled" : result.Error.ToString())}.");
-                }
+                var result = CancelPendingOrder(order);
+                Print($"[TradeManager] TSI-cancel order {order.Id} {order.SymbolName} {order.TradeType}: {(result.IsSuccessful ? "cancelled" : result.Error.ToString())}.");
             }
         }
 
         private void DetectPositionTsiExit(Position position)
         {
-            if (!TryGetTsiZeroCross(position.SymbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out double atr))
-                return;
-
-            bool against = position.TradeType == TradeType.Buy ? crossedAgainstLong : crossedAgainstShort;
-            if (!against) return;
-
             string key = $"{position.Id}:{position.SymbolName}";
+            var crossState = EvaluateTsiCross(position.SymbolName, position.EntryTime, out double atr);
+
+            if (crossState == TsiCrossState.NoData)
+            {
+                // Series unavailable this pass: leave any pending exit armed and retry next pass.
+                return;
+            }
+
+            bool against = position.TradeType == TradeType.Buy
+                ? crossState == TsiCrossState.AgainstLong
+                : crossState == TsiCrossState.AgainstShort;
+            if (!against)
+            {
+                // No adverse cross since entry, or the regime recovered after an earlier one:
+                // disarm an exit that has not executed yet.
+                if (_positionExitPending.Remove(key))
+                    Print($"[TradeManager] TSI exit disarmed for position {position.Id} {position.SymbolName}: regime no longer against the position.");
+                return;
+            }
+
             if (!_positionExitPending.ContainsKey(key))
                 _positionExitPending[key] = new PositionExitState(Server.TimeInUtc, atr);
         }
@@ -217,72 +235,124 @@ namespace cAlgo
                 : symbol.Ask <= order.TakeProfit.Value;
         }
 
-        private bool TryGetTsiZeroCross(string symbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out double atr)
+        /// <summary>
+        /// Outcome of the TSI zero-line evaluation for one order/position since it was created.
+        /// </summary>
+        private enum TsiCrossState
         {
-            if (_tsiCache.TryGetValue(symbolName, out var cached))
+            /// <summary>Daily series unavailable this pass; the check is retried next pass.</summary>
+            NoData,
+
+            /// <summary>No zero-line cross since the order/position was created.</summary>
+            NoCross,
+
+            /// <summary>The most recent cross was bearish (TSI fell through zero) — against longs.</summary>
+            AgainstLong,
+
+            /// <summary>The most recent cross was bullish (TSI rose through zero) — against shorts.</summary>
+            AgainstShort
+        }
+
+        /// <summary>
+        /// Finds the most recent TSI zero-line cross on completed daily bars since <paramref name="sinceUtc"/>
+        /// (order creation / position entry). Only the newest cross decides: a bearish cross followed by a
+        /// recovery (bullish cross) leaves the position alone, and a reversal entry below the zero line can
+        /// only be closed after TSI first crossed above it and then crossed back down. Because the scan runs
+        /// from the creation time forward, a cBot restart never misses a cross from earlier days.
+        /// </summary>
+        private TsiCrossState EvaluateTsiCross(string symbolName, DateTime sinceUtc, out double atr)
+        {
+            atr = double.NaN;
+            var series = GetTsiSeries(symbolName);
+            if (series == null)
+                return TsiCrossState.NoData;
+
+            int eval = series.EvalIndex;
+            if (eval < 1)
+                return TsiCrossState.NoData;
+
+            atr = series.Atr[eval];
+            if (double.IsNaN(atr) || atr <= 0.0)
             {
-                crossedAgainstLong = cached.CrossedAgainstLong;
-                crossedAgainstShort = cached.CrossedAgainstShort;
-                atr = cached.Atr;
-                return cached.CrossedAgainstLong || cached.CrossedAgainstShort;
+                atr = double.NaN;
+                return TsiCrossState.NoData;
             }
 
-            crossedAgainstLong = false;
-            crossedAgainstShort = false;
-            atr = double.NaN;
+            // Only completed bars whose close printed after the order/position existed count.
+            int first = eval;
+            while (first > 1 && ReversalEngine.GetDailyBarCloseTimeUtc(series.OpenTimes[first - 1]) > sinceUtc)
+                first--;
 
+            for (int i = eval; i >= first; i--)
+            {
+                double prev = series.Tsi[i - 1];
+                double cur = series.Tsi[i];
+                if (double.IsNaN(prev) || double.IsNaN(cur))
+                    continue;
+                if (prev > 0.0 && cur <= 0.0) return TsiCrossState.AgainstLong;
+                if (prev < 0.0 && cur >= 0.0) return TsiCrossState.AgainstShort;
+                // No sign change at this bar; keep scanning backwards for the newest cross.
+            }
+            return TsiCrossState.NoCross;
+        }
+
+        private TsiSeries? GetTsiSeries(string symbolName)
+        {
+            if (_tsiCache.TryGetValue(symbolName, out var cached))
+                return cached;
+            cached = LoadTsiSeries(symbolName);
+            _tsiCache[symbolName] = cached;
+            return cached;
+        }
+
+        private TsiSeries? LoadTsiSeries(string symbolName)
+        {
             var bars = LoadDailyBars(symbolName, 250);
             if (bars == null || bars.Count < TsiLongPeriod + TsiShortPeriod + TsiSignalPeriod + AtrPeriod + 3)
             {
-                Print($"[TradeManager] TSI check skipped for {symbolName}: insufficient daily bars.");
-                _tsiCache[symbolName] = new TsiCheckResult(false, false, false, double.NaN);
-                return false;
+                Print($"[TradeManager] TSI series unavailable for {symbolName}: insufficient daily bars.");
+                return null;
             }
 
-            int last = bars.Count - 1;
-            int eval = IsDailyBarForming(bars, last) ? last - 1 : last;
+            int eval = LastCompletedIndex(bars);
             if (eval < 2)
-            {
-                _tsiCache[symbolName] = new TsiCheckResult(false, false, false, double.NaN);
-                return false;
-            }
+                return null;
 
             var closes = new double[bars.Count];
             var highs = new double[bars.Count];
             var lows = new double[bars.Count];
+            var openTimes = new DateTime[bars.Count];
             for (int i = 0; i < bars.Count; i++)
             {
                 closes[i] = bars.ClosePrices[i];
                 highs[i] = bars.HighPrices[i];
                 lows[i] = bars.LowPrices[i];
+                openTimes[i] = bars.OpenTimes[i];
             }
 
             var tsi = ReversalEngine.ComputeTsi(closes, TsiLongPeriod, TsiShortPeriod, TsiSignalPeriod);
             var atrValues = ReversalEngine.ComputeAtr(highs, lows, closes, AtrPeriod);
-            double previous = tsi.Tsi[eval - 1];
-            double current = tsi.Tsi[eval];
-            atr = atrValues[eval];
-            if (double.IsNaN(previous) || double.IsNaN(current) || double.IsNaN(atr) || atr <= 0.0)
-            {
-                _tsiCache[symbolName] = new TsiCheckResult(false, false, false, atr);
-                return false;
-            }
+            if (double.IsNaN(tsi.Tsi[eval]))
+                return null;
 
-            crossedAgainstLong = previous > 0.0 && current <= 0.0;
-            crossedAgainstShort = previous < 0.0 && current >= 0.0;
-            _tsiCache[symbolName] = new TsiCheckResult(true, crossedAgainstLong, crossedAgainstShort, atr);
-            return crossedAgainstLong || crossedAgainstShort;
+            return new TsiSeries
+            {
+                Tsi = tsi.Tsi,
+                Atr = atrValues,
+                OpenTimes = openTimes,
+                EvalIndex = eval
+            };
         }
 
         private MacroGate ReadMacroGate()
         {
             var spyBars = LoadDailyBars(_resolvedBenchmarkSymbol, BenchmarkSmaPeriod + 20);
-            var vixBars = LoadDailyBars(_resolvedVixSymbol, 5);
-            if (spyBars == null || vixBars == null) return MacroGate.Unavailable;
+            if (spyBars == null) return MacroGate.Unavailable;
 
-            int spyIndex = LastCompletedIndex(spyBars);
-            int vixIndex = LastCompletedIndex(vixBars);
-            if (spyIndex < BenchmarkSmaPeriod - 1 || vixIndex < 0) return MacroGate.Unavailable;
+            // The SPY band is a US-session macro gate: select its bar with the US cash session model
+            // even when the broker lists the symbol without the '.US' suffix.
+            int spyIndex = LastCompletedIndex(spyBars, true);
+            if (spyIndex < BenchmarkSmaPeriod - 1) return MacroGate.Unavailable;
 
             double spyClose = spyBars.ClosePrices[spyIndex];
             double spySma = 0.0;
@@ -299,13 +369,11 @@ namespace cAlgo
             }
             double[] spyAtrValues = ReversalEngine.ComputeAtr(spyHighs, spyLows, spyCloses, AtrPeriod);
             double spyAtr = spyAtrValues[spyIndex];
-            double vixClose = vixBars.ClosePrices[vixIndex];
             if (double.IsNaN(spyAtr) || spyAtr <= 0.0) return MacroGate.Unavailable;
             double buffer = BenchmarkBufferAtr * spyAtr;
-            bool vixBlocksLongs = vixClose > MaxVixThreshold;
             bool spyBelowBuffer = spyClose < spySma - buffer;
             bool spyAboveBuffer = spyClose > spySma + buffer;
-            return new MacroGate(true, !(spyBelowBuffer || vixBlocksLongs), !spyAboveBuffer, $"SPY {spyClose:F2} vs SMA {spySma:F2} +/- {BenchmarkBufferAtr:F1} ATR ({spyAtr:F2}); VIX {vixClose:F2}");
+            return new MacroGate(true, !spyBelowBuffer, !spyAboveBuffer, $"SPY {spyClose:F2} vs SMA {spySma:F2} +/- {BenchmarkBufferAtr:F1} ATR ({spyAtr:F2})");
         }
 
         private MacroGate ReadCryptoMacroGate()
@@ -313,7 +381,8 @@ namespace cAlgo
             var btcBars = LoadDailyBars(_resolvedCryptoBenchmarkSymbol, CryptoBenchmarkSmaPeriod + 20);
             if (btcBars == null) return MacroGate.Unavailable;
 
-            int btcIndex = LastCompletedIndex(btcBars);
+            // BTC trades 24/7: the 24h window rule applies, never the US session model.
+            int btcIndex = LastCompletedIndex(btcBars, false);
             if (btcIndex < CryptoBenchmarkSmaPeriod - 1) return MacroGate.Unavailable;
 
             double btcSma = 0.0;
@@ -387,18 +456,44 @@ namespace cAlgo
             catch { return null; }
         }
 
+        /// <summary>
+        /// Index of the last completed daily bar of the given series, using the session model of the
+        /// symbol name ('.US' = US cash session, everything else = 24h window).
+        /// </summary>
         private int LastCompletedIndex(Bars bars)
         {
-            if (bars.Count == 0) return -1;
-            int last = bars.Count - 1;
-            return IsDailyBarForming(bars, last) ? last - 1 : last;
+            return LastCompletedIndex(bars, IsUsEquitySymbol(bars.SymbolName));
         }
 
-        private bool IsDailyBarForming(Bars bars, int index)
+        /// <summary>
+        /// Index of the last completed daily bar (no repaint) with an explicit session model. The
+        /// selection is shared with the scanners (<see cref="ReversalEngine.GetLastCompletedDailyBarIndex"/>)
+        /// so both always evaluate the same bar:
+        ///   * US cash equities (<paramref name="usCashEquity"/>): completed at their 16:00 ET session
+        ///     close, derived from the bar's own open time, independent of the broker's daily bar
+        ///     stamping convention;
+        ///   * every other instrument (FX, metals, commodities, indices, crypto): completed once the
+        ///     bar's own 24h window has elapsed.
+        /// Untouched bars (no ticks, no range) that the broker pre-created for the next session are
+        /// skipped, and a bar that is still forming is never evaluated - so the TSI zero-line check can
+        /// no longer run one day behind.
+        /// </summary>
+        private int LastCompletedIndex(Bars bars, bool usCashEquity)
         {
-            var symbol = Symbols.GetSymbol(bars.SymbolName);
-            if (symbol == null || symbol.MarketHours.IsOpened()) return true;
-            return bars.OpenTimes[index] > Server.TimeInUtc;
+            if (bars == null || bars.Count == 0) return -1;
+
+            int count = bars.Count;
+            var openTimes = new DateTime[count];
+            var hasTraded = new bool[count];
+            for (int i = 0; i < count; i++)
+            {
+                openTimes[i] = bars.OpenTimes[i];
+                hasTraded[i] = !ReversalEngine.IsUntouchedDailyBar(
+                    bars.OpenPrices[i], bars.HighPrices[i], bars.LowPrices[i], bars.ClosePrices[i], bars.TickVolumes[i]);
+            }
+
+            return ReversalEngine.GetLastCompletedDailyBarIndex(
+                openTimes, hasTraded, usCashEquity, Server.TimeInUtc);
         }
 
         private string ResolveSymbolName(string preferred, params string[] fallbacks)
@@ -440,20 +535,13 @@ namespace cAlgo
             public double Atr { get; }
         }
 
-        private readonly struct TsiCheckResult
+        /// <summary>Cached per-symbol daily TSI/ATR series for one daily-close pass.</summary>
+        private sealed class TsiSeries
         {
-            public TsiCheckResult(bool hasUsableData, bool crossedAgainstLong, bool crossedAgainstShort, double atr)
-            {
-                HasUsableData = hasUsableData;
-                CrossedAgainstLong = crossedAgainstLong;
-                CrossedAgainstShort = crossedAgainstShort;
-                Atr = atr;
-            }
-
-            public bool HasUsableData { get; }
-            public bool CrossedAgainstLong { get; }
-            public bool CrossedAgainstShort { get; }
-            public double Atr { get; }
+            public double[] Tsi = Array.Empty<double>();
+            public double[] Atr = Array.Empty<double>();
+            public DateTime[] OpenTimes = Array.Empty<DateTime>();
+            public int EvalIndex = -1;
         }
     }
 }

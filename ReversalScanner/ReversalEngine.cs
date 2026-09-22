@@ -76,6 +76,9 @@ namespace cAlgo
         /// <summary>TSI on the divergence bar (the bar that made the fresh price extreme).</summary>
         public readonly double Tsi;
 
+        /// <summary>TSI on the signal bar (the bar that carries Close/CLV; with confirmation it is the bar before the confirmation bar).</summary>
+        public readonly double SignalTsi;
+
         /// <summary>TSI signal line on the signal bar (display only, not part of the trigger).</summary>
         public readonly double TsiSig;
 
@@ -94,7 +97,7 @@ namespace cAlgo
 
         public ReversalSetupResult(bool isTriggered, ReversalDirection direction,
             int extremeIndex, double level, int retestIndex, int triggerIndex,
-            double close, double high, double low, double clv, double tsi, double tsiSig,
+            double close, double high, double low, double clv, double tsi, double signalTsi, double tsiSig,
             double refTsi, double ema21, double atr, double distanceAtr, string rejectReason)
         {
             IsTriggered = isTriggered;
@@ -108,6 +111,7 @@ namespace cAlgo
             Low = low;
             Clv = clv;
             Tsi = tsi;
+            SignalTsi = signalTsi;
             TsiSig = tsiSig;
             RefTsi = refTsi;
             Ema21 = ema21;
@@ -119,7 +123,7 @@ namespace cAlgo
         /// <summary>Constructs a non-triggered result with a reject reason.</summary>
         public static ReversalSetupResult Reject(ReversalDirection direction, string reason) =>
             new ReversalSetupResult(false, direction, -1, double.NaN, -1, -1,
-                double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN,
+                double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN,
                 double.NaN, double.NaN, double.NaN, double.NaN, reason);
     }
 
@@ -137,15 +141,20 @@ namespace cAlgo
     ///   1. DIVERGENCE DETECTION: some bar d in the last `triggerWindow` bars (including the
     ///      signal bar) made the highest High of its full lookback window, with
     ///      TSI[d] <= TSI[reference] - minTsiDrop. The reference is the highest High of the prior
-    ///      window, at least minGap bars back, and the REFERENCE TSI must exceed +tsiLevel (the
-    ///      prior move was genuinely strong; the divergence bar's own TSI is unconstrained).
-    ///      No higher High is allowed between d and the signal bar (otherwise stale).
+    ///      window, at least minGap bars back, whose TSI exceeds +tsiLevel (a genuinely strong
+    ///      prior move); intermediate divergence highs with weaker TSI are skipped, so a chain
+    ///      of higher-high / lower-TSI extremes re-anchors to the original strong extreme —
+    ///      the setup survives newer, more extreme prints as long as the TSI keeps stepping
+    ///      down vs the previous extreme. It only dies when momentum recovers at a newer
+    ///      extreme (a higher High with a higher TSI).
     ///   2. TRIGGER: the signal bar closes weakly (CLV <= clvShortMax). The divergence bar and
     ///      the trigger bar may be the same bar. Trend filter and gates still apply.
     ///
     /// Long Reversal is the mirror: lowest Low of the full lookback window with
     /// TSI[d] >= TSI[reference] + minTsiDrop and reference TSI < -tsiLevel, then a strong
-    /// close (CLV >= clvLongMin).
+    /// close (CLV >= clvLongMin). Newer, deeper lows re-anchor the divergence chain to the
+    /// newest extreme while the TSI keeps stepping up vs the previous extreme; the setup only
+    /// dies when momentum deteriorates at a newer extreme.
     ///
     /// Next-bar confirmation is optional (default off). The scanner does not compute SL/PT
     /// (alert-only).
@@ -379,20 +388,41 @@ namespace cAlgo
                 int windowStart = d - lookback;
                 if (windowStart < 0) break;
 
-                int rIdx = -1;
-                double rHigh = double.NaN;
+                // Previous extreme: the highest high of the prior window (any gap). The
+                // divergence chain requires the newest extreme to keep a lower TSI than this.
+                int prevIdx = -1;
+                double prevHigh = double.NaN;
                 for (int i = windowStart; i < d; i++)
                 {
+                    if (prevIdx < 0 || highs[i] > prevHigh)
+                    {
+                        prevIdx = i;
+                        prevHigh = highs[i];
+                    }
+                }
+
+                // Reference: the highest high at least minGap back whose TSI marks a genuinely
+                // strong prior move (TSI > tsiLevel). Intermediate divergence highs (weaker TSI)
+                // are skipped, so a chain of higher-high / lower-TSI extremes re-anchors to the
+                // original strong extreme instead of dying on the newer print.
+                int rIdx = -1;
+                double rHigh = double.NaN;
+                for (int i = windowStart; i <= d - minGap; i++)
+                {
+                    if (double.IsNaN(tsi[i]) || !(tsi[i] > tsiLevel)) continue;
                     if (rIdx < 0 || highs[i] > rHigh)
                     {
                         rIdx = i;
                         rHigh = highs[i];
                     }
                 }
-                if (rIdx < 0 || d - rIdx < minGap || double.IsNaN(tsi[d]) || double.IsNaN(tsi[rIdx]))
+                if (prevIdx < 0 || rIdx < 0 ||
+                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]))
                     continue;
 
-                if (highs[d] > rHigh && tsi[rIdx] > tsiLevel && tsi[d] <= tsi[rIdx] - minTsiDrop)
+                if (highs[d] > prevHigh &&                // fresh extreme vs the whole prior window
+                    tsi[d] <= tsi[prevIdx] &&             // chain: TSI still below the previous extreme
+                    tsi[d] <= tsi[rIdx] - minTsiDrop)     // divergence vs the strong reference
                 {
                     bool stale = false;
                     for (int i = d + 1; i <= signal; i++)
@@ -433,7 +463,7 @@ namespace cAlgo
                     "SPY benchmark gate failed (SPY not < SPY_SMA50)");
 
             return new ReversalSetupResult(true, ReversalDirection.Short,
-                refIdx, refHigh, -1, t, close, high, low, clv, divTsi, tsiSigT,
+                refIdx, refHigh, -1, t, close, high, low, clv, divTsi, tsi[signal], tsiSigT,
                 refTsi, ema, atrT, double.NaN, "Short Reversal triggered (TSI divergence + weak close)");
         }
 
@@ -473,20 +503,41 @@ namespace cAlgo
                 int windowStart = d - lookback;
                 if (windowStart < 0) break;
 
-                int rIdx = -1;
-                double rLow = double.NaN;
+                // Previous extreme: the lowest low of the prior window (any gap). The
+                // divergence chain requires the newest extreme to keep a higher TSI than this.
+                int prevIdx = -1;
+                double prevLow = double.NaN;
                 for (int i = windowStart; i < d; i++)
                 {
+                    if (prevIdx < 0 || lows[i] < prevLow)
+                    {
+                        prevIdx = i;
+                        prevLow = lows[i];
+                    }
+                }
+
+                // Reference: the lowest low at least minGap back whose TSI marks a genuinely
+                // strong prior move (TSI < -tsiLevel). Intermediate divergence lows (weaker TSI)
+                // are skipped, so a chain of lower-low / higher-TSI extremes re-anchors to the
+                // original strong extreme instead of dying on the newer print.
+                int rIdx = -1;
+                double rLow = double.NaN;
+                for (int i = windowStart; i <= d - minGap; i++)
+                {
+                    if (double.IsNaN(tsi[i]) || !(tsi[i] < -tsiLevel)) continue;
                     if (rIdx < 0 || lows[i] < rLow)
                     {
                         rIdx = i;
                         rLow = lows[i];
                     }
                 }
-                if (rIdx < 0 || d - rIdx < minGap || double.IsNaN(tsi[d]) || double.IsNaN(tsi[rIdx]))
+                if (prevIdx < 0 || rIdx < 0 ||
+                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]))
                     continue;
 
-                if (lows[d] < rLow && tsi[rIdx] < -tsiLevel && tsi[d] >= tsi[rIdx] + minTsiDrop)
+                if (lows[d] < prevLow &&                 // fresh extreme vs the whole prior window
+                    tsi[d] >= tsi[prevIdx] &&            // chain: TSI still above the previous extreme
+                    tsi[d] >= tsi[rIdx] + minTsiDrop)    // divergence vs the strong reference
                 {
                     bool stale = false;
                     for (int i = d + 1; i <= signal; i++)
@@ -527,7 +578,7 @@ namespace cAlgo
                     "SPY benchmark gate failed (SPY not > SPY_SMA50)");
 
             return new ReversalSetupResult(true, ReversalDirection.Long,
-                refIdx, refLow, -1, t, close, high, low, clv, divTsi, tsiSigT,
+                refIdx, refLow, -1, t, close, high, low, clv, divTsi, tsi[signal], tsiSigT,
                 refTsi, ema, atrT, double.NaN, "Long Reversal triggered (TSI divergence + strong close)");
         }
 
@@ -618,35 +669,99 @@ namespace cAlgo
         }
 
         /// <summary>
-        /// Identifies the bar index of the most recently completed regular US cash session daily bar
-        /// (09:30 - 16:00 ET, Mon-Fri). The latest bar (n-1) is the forming bar during the session;
-        /// the last completed session is n-2. After hours / weekends / pre-market: n-1 is closed.
+        /// True when the regular US cash session (09:30 - 16:00 ET, Mon-Fri) contained in a daily bar
+        /// that opened at <paramref name="barOpenUtc"/> has already closed.
+        ///
+        /// Brokers stamp US-equity daily bars in different ways (00:00 UTC, 00:00 ET, cTrader's own
+        /// 17:00 ET aggregation boundary, or the session open), so the bar's own open time is used to
+        /// locate the 16:00 ET boundary of the session that this bar carries: the first 16:00 ET
+        /// strictly after the bar opened. Every daily bar window contains exactly one regular cash
+        /// session, which makes the test independent of the broker's stamping convention. Inside the
+        /// session - and for a bar the broker pre-created for the next session - the result is false,
+        /// so a still-forming (or not yet traded) bar is never reported as completed.
         /// </summary>
-        public static int GetLastCompletedDailyBarIndex(DateTime lastBarOpenUtc, int totalBarsCount, DateTime serverTimeUtc)
+        public static bool HasUsCashSessionEnded(DateTime barOpenUtc, DateTime serverTimeUtc)
         {
-            if (totalBarsCount <= 0) return -1;
+            DateTime openEt = ConvertUtcToEt(barOpenUtc);
+            DateTime sessionEndEt = openEt.Date.AddHours(16.0);
+            if (sessionEndEt <= openEt) sessionEndEt = sessionEndEt.AddDays(1);
+            return ConvertUtcToEt(serverTimeUtc) >= sessionEndEt;
+        }
 
-            DateTime nowEt = ConvertUtcToEt(serverTimeUtc);
-            DateTime lastBarEt = ConvertUtcToEt(lastBarOpenUtc);
+        /// <summary>
+        /// UTC instant at which the daily bar that opened at <paramref name="barOpenUtc"/> stops
+        /// receiving data: exactly 24 hours later on the ET wall clock. Using the ET wall clock
+        /// (instead of adding 24h to the UTC value) keeps daily boundaries stable across the DST
+        /// switches that would otherwise shift them by one hour.
+        /// </summary>
+        public static DateTime GetDailyBarCloseTimeUtc(DateTime barOpenUtc)
+        {
+            return ConvertEtToUtc(ConvertUtcToEt(barOpenUtc).AddDays(1.0));
+        }
 
-            // Weekend bar present: last completed regular session is n-2.
-            if ((lastBarEt.DayOfWeek == DayOfWeek.Saturday || lastBarEt.DayOfWeek == DayOfWeek.Sunday) && totalBarsCount >= 2)
-                return totalBarsCount - 2;
+        /// <summary>
+        /// True when the daily bar that opened at <paramref name="barOpenUtc"/> can no longer receive
+        /// data, i.e. it is a completed bar that may be evaluated.
+        ///
+        /// US cash equities (<paramref name="usCashEquity"/>): the regular session closes at 16:00 ET,
+        /// so the bar is completed once the 16:00 ET boundary of the session it carries has passed
+        /// (see <see cref="HasUsCashSessionEnded"/>). The boundary is derived from the bar's own open
+        /// time, so the rule is independent of the broker's daily bar stamping convention (00:00 UTC,
+        /// 00:00 ET, cTrader's own 17:00 ET aggregation boundary or the session open) - every daily
+        /// bar window contains exactly one regular session.
+        ///
+        /// Every other instrument (FX, metals, commodities, indices, crypto): the bar's own 24h
+        /// window must have elapsed. Prices there are not tied to a cash session, so the bar stays
+        /// current until its next boundary arrives; a stale feed, a holiday that is still reported as
+        /// an open market, or a symbol without usable market hours therefore never costs a bar.
+        /// </summary>
+        public static bool IsDailyBarCompleted(DateTime barOpenUtc, DateTime serverTimeUtc, bool usCashEquity)
+        {
+            if (usCashEquity) return HasUsCashSessionEnded(barOpenUtc, serverTimeUtc);
+            return ConvertUtcToEt(serverTimeUtc) >= ConvertUtcToEt(barOpenUtc).AddDays(1.0);
+        }
 
-            // Pre-market: latest bar is today's unformed bar; last completed is n-2.
-            if (nowEt.TimeOfDay < new TimeSpan(9, 30, 0) && lastBarEt.Date >= nowEt.Date && totalBarsCount >= 2)
-                return totalBarsCount - 2;
+        /// <summary>
+        /// True when a daily bar has not traded yet: no ticks at all and no range. Brokers
+        /// pre-create the next session's daily bar (weekend / holiday / after-hours rollover), and
+        /// such an empty bar has no close location and no divergence, so it can never carry a signal
+        /// and must never hide the session that just finished.
+        /// </summary>
+        public static bool IsUntouchedDailyBar(double open, double high, double low, double close, double tickVolume)
+        {
+            return tickVolume == 0.0 && open == close && high == low;
+        }
 
-            // Regular session hours: n-1 is forming; last completed is n-2.
-            if (nowEt.DayOfWeek != DayOfWeek.Saturday && nowEt.DayOfWeek != DayOfWeek.Sunday &&
-                nowEt.TimeOfDay >= new TimeSpan(9, 30, 0) && nowEt.TimeOfDay < new TimeSpan(16, 0, 0) && totalBarsCount >= 2)
-                return totalBarsCount - 2;
+        /// <summary>
+        /// Index of the last completed daily bar of a series, or -1 when there is none.
+        ///
+        /// The series is walked from the newest bar backwards and the first bar that
+        /// 1. is not stamped in the future,
+        /// 2. has traded (see <see cref="IsUntouchedDailyBar"/>),
+        /// 3. and cannot receive data any more (see <see cref="IsDailyBarCompleted"/>)
+        /// is the last completed bar. Bars that the broker pre-created for the next session are
+        /// therefore skipped instead of hiding the last closed bar, and a bar that is still forming
+        /// (or still ahead) is never evaluated - outside market hours this returns the newest closed
+        /// bar of the series rather than the one before it.
+        /// </summary>
+        public static int GetLastCompletedDailyBarIndex(
+            IReadOnlyList<DateTime> openTimesUtc,
+            IReadOnlyList<bool> barHasTraded,
+            bool usCashEquity,
+            DateTime serverTimeUtc)
+        {
+            if (openTimesUtc == null || barHasTraded == null) return -1;
+            if (openTimesUtc.Count == 0 || openTimesUtc.Count != barHasTraded.Count) return -1;
 
-            // After-hours broker rollover to tomorrow's bar date: last completed is n-2.
-            if (nowEt.TimeOfDay >= new TimeSpan(16, 0, 0) && lastBarEt.Date > nowEt.Date && totalBarsCount >= 2)
-                return totalBarsCount - 2;
+            for (int i = openTimesUtc.Count - 1; i >= 0; i--)
+            {
+                DateTime openUtc = openTimesUtc[i];
+                if (openUtc > serverTimeUtc) continue;
+                if (!barHasTraded[i]) continue;
+                if (IsDailyBarCompleted(openUtc, serverTimeUtc, usCashEquity)) return i;
+            }
 
-            return totalBarsCount - 1;
+            return -1;
         }
 
         /// <summary>Converts UTC to US Eastern Time, handling EST/EDT and cross-platform timezone IDs.</summary>

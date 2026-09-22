@@ -28,11 +28,17 @@ namespace cAlgo
         [Parameter("Show Signal Line", Group = "TSI", DefaultValue = true)]
         public bool ShowSignalLine { get; set; } = true;
 
+        [Parameter("Show Zero Line", Group = "TSI", DefaultValue = true)]
+        public bool ShowZeroLine { get; set; } = true;
+
         [Output("TSI", LineColor = "CornflowerBlue", Thickness = 2, PlotType = PlotType.Line)]
         public IndicatorDataSeries Tsi { get; set; } = null!;
 
         [Output("TSI Signal", LineColor = "Orange", Thickness = 1, PlotType = PlotType.Line)]
         public IndicatorDataSeries TsiSignal { get; set; } = null!;
+
+        [Output("Zero Line", LineColor = "Gray", Thickness = 1, PlotType = PlotType.Line, LineStyle = LineStyle.Dots)]
+        public IndicatorDataSeries ZeroLine { get; set; } = null!;
 
         // Cumulative per-bar state (written at every index so a full recalculation
         // reproduces the live pane exactly; recomputing the same index re-derives
@@ -56,7 +62,7 @@ namespace cAlgo
             _emaShortAbs.Clear();
             _tsiValues.Clear();
             _tsiSigValues.Clear();
-            Print($"[TrueStrengthIndex] TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Signal line {(ShowSignalLine ? "ON" : "OFF")} | Zero line = momentum regime.");
+            Print($"[TrueStrengthIndex] TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Signal line {(ShowSignalLine ? "ON" : "OFF")} | Zero line {(ShowZeroLine ? "ON" : "OFF")} (drawn at 0; regime = TSI above/below it).");
         }
 
         public override void Calculate(int index)
@@ -112,6 +118,7 @@ namespace cAlgo
 
             Tsi[index] = tsi;
             TsiSignal[index] = ShowSignalLine ? tsiSig : double.NaN;
+            ZeroLine[index] = ShowZeroLine ? 0.0 : double.NaN;
         }
 
         /// <summary>Returns the stored value at index - 1 (NaN when none exists).</summary>

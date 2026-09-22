@@ -30,7 +30,6 @@ namespace cAlgo
     {
         /// <summary>Default crypto symbol universe gated by the BTC benchmark filter.</summary>
         private const string DefaultCryptoSymbolsCsv = "BTCUSD,BTCGBP,BTCEUR,BTCAUD,ETHUSD,ETHGBP,ETHEUR,ETHAUD,LTCUSD,TRUMPUSD,AAVUSD,ATMUSD,FLOUSD,JUPUSD,NERUSD,ONDUSD,PEPUSD,SHBUSD,TRXUSD,WIFUSD,ARBUSD,BNKUSD,MANUSD,SANUSD,POLUSD,SONUSD,HBARUSD,SUIUSD,TONUSD,APTUSD,HYPEUSD,INJUSD,RENDERUSD,FETUSD,XAUTUSD,PAXGUSD,DOTUSD,LINKUSD,XLMUSD,XRPUSD,UNIUSD,DOGEUSD,ADAUSD,BCHUSD,BNBUSD,XTZUSD,SOLUSD,AVAXUSD,COMPUSD,ETCUSD,GLMRUSD,KSMUSD";
-        private const int TrendEmaPeriod = 50;
         // =========================================================================
         // --- 1. Scan Setup ---
         // =========================================================================
@@ -66,6 +65,9 @@ namespace cAlgo
         // =========================================================================
         [Parameter("EMA Period", Group = "2. Indicators", DefaultValue = 21, MinValue = 10)]
         public int EmaPeriod { get; set; } = 21;
+
+        [Parameter("Trend EMA Period (alignment)", Group = "2. Indicators", DefaultValue = 50, MinValue = 10)]
+        public int TrendEmaPeriod { get; set; } = 50;
 
         [Parameter("SMA200 Period (Long-Term Trend)", Group = "2. Indicators", DefaultValue = 200, MinValue = 20)]
         public int Sma200Period { get; set; } = 200;
@@ -250,7 +252,7 @@ namespace cAlgo
 
             Print($"[ContinuationScanner] Started. Watchlist '{WatchlistName}' loaded with {_watchlistSymbols.Count} symbols.");
             Print($"[ContinuationScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
-            Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Divergence guard {DivergenceGuardBars} bars. (No RSI — TSI zero-line regime + divergence guard on trigger bar; signal line display-only.)");
+            Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod})/TrendEMA({TrendEmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Divergence guard {DivergenceGuardBars} bars. (No RSI — TSI zero-line regime + divergence guard on trigger bar; signal line display-only.)");
             Print($"[ContinuationScanner] Thresholds: CLV +-{ClvThreshold:F2}. No SL/PT computed (alert-only).");
             Print($"[ContinuationScanner] Latest closed bar must touch EMA21 and reclaim/break it. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
             Print($"[ContinuationScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
@@ -474,7 +476,7 @@ namespace cAlgo
                 _ => $"in {ScanIntervalSeconds}s (at {_nextScanTime:HH:mm:ss} UTC)"
             };
 
-            Print($"[ContinuationScanner] Pass #{_scanPassCount} complete: {_currentPassScanned}/{total} scanned ({_currentPassSkipped} skipped), {_activeSetups.Count} active setups. Next scan {nextDesc}.");
+            Print($"[ContinuationScanner] Pass #{_scanPassCount} complete in {_passStopwatch.ElapsedMilliseconds} ms: {_currentPassScanned}/{total} scanned ({_currentPassSkipped} skipped), {_activeSetups.Count} active setups. Next scan {nextDesc}.");
 
             if (_currentPassRejects.Count > 0)
             {
@@ -487,6 +489,8 @@ namespace cAlgo
                 }
                 Print($"[ContinuationScanner] {totalRejected} rejections: {string.Join(" | ", parts)}.");
             }
+
+            PrintSkipSummary();
 
             DrawHud(_currentPassScanned, total, _currentPassAlerts);
         }
@@ -562,7 +566,8 @@ namespace cAlgo
             double[] atr = snapshot.Atr;
             var tsi = snapshot.Tsi;
 
-            // Scan back a few bars so freshly-triggered setups are not missed.
+            // Max Setup Age = 0: only the last completed daily bar is evaluated, so a fresh
+            // trigger must fire on that bar.
             bool alertFired = false;
             ArmedContinuationSetup? bestSetup = null;
 
@@ -667,14 +672,14 @@ namespace cAlgo
                     RecordReject("Divergence guard reference NaN/unavailable - cannot confirm no active divergence");
                     return false;
                 }
-                if (setup.Direction == ReversalDirection.Long && closes[targetIdx] > closes[guardPrevIdx] && !(liveTsi > tsi[guardPrevIdx]))
+                if (setup.Direction == ReversalDirection.Long && closes[targetIdx] > closes[guardPrevIdx] && liveTsi < tsi[guardPrevIdx])
                 {
-                    RecordReject($"Price up but TSI {liveTsi:F2} <= TSI {tsi[guardPrevIdx]:F2} {DivergenceGuardBars} bars ago - active divergence");
+                    RecordReject($"Price up but TSI {liveTsi:F2} < TSI {tsi[guardPrevIdx]:F2} {DivergenceGuardBars} bars ago - active divergence");
                     return false;
                 }
-                if (setup.Direction == ReversalDirection.Short && closes[targetIdx] < closes[guardPrevIdx] && !(liveTsi < tsi[guardPrevIdx]))
+                if (setup.Direction == ReversalDirection.Short && closes[targetIdx] < closes[guardPrevIdx] && liveTsi > tsi[guardPrevIdx])
                 {
-                    RecordReject($"Price down but TSI {liveTsi:F2} >= TSI {tsi[guardPrevIdx]:F2} {DivergenceGuardBars} bars ago - active divergence");
+                    RecordReject($"Price down but TSI {liveTsi:F2} > TSI {tsi[guardPrevIdx]:F2} {DivergenceGuardBars} bars ago - active divergence");
                     return false;
                 }
             }
@@ -722,6 +727,7 @@ namespace cAlgo
 
             var sb = new StringBuilder();
             sb.AppendLine($"{dir} CONTINUATION SETUP — {symbolName} [{dateTag}]");
+            sb.AppendLine($"  Scanned {now:yyyy-MM-dd HH:mm} UTC | Signal bar opened {s.SignalBarTime:yyyy-MM-dd} = latest COMPLETED daily bar at scan time (the live/forming bar is never evaluated)");
             sb.AppendLine($"  EMA21 touch and trigger bar #{s.TriggerIndex}");
             sb.AppendLine($"  Close: {s.Close:F4} | CLV: {s.Clv:F2} | TSI: {s.Tsi:F2} (regime >0/<0; sig {s.TsiSig:F2} display-only)");
             sb.AppendLine($"  EMA21: {s.Ema50:F4} | SMA200: {s.Sma200:F4} | ATR: {s.Atr:F4} | Live: {s.LivePrice:F4}");
@@ -760,7 +766,9 @@ namespace cAlgo
                     return (true, true, double.NaN, double.NaN, $"SPY data unavailable ({_resolvedBenchmarkSymbol} bars < {minBars}) — filter bypassed");
 
                 int n = spyBars.Count;
-                int evalIdx = GetLastCompletedDailyBarIndex(spyBars, _resolvedBenchmarkSymbol);
+                // SPY is a US-session instrument: select its bar with the US cash session model even
+                // when the broker lists it without the '.US' suffix (see the overload below).
+                int evalIdx = GetLastCompletedDailyBarIndex(spyBars, UseUsSessionBarLogic);
                 if (evalIdx < 0) return (true, true, double.NaN, double.NaN, "SPY completed bar unavailable — filter bypassed");
 
                 double spyClose = spyBars.ClosePrices[evalIdx];
@@ -821,7 +829,8 @@ namespace cAlgo
                 var vixBars = EnsureBarsLoaded(TimeFrame.Daily, _resolvedVixSymbol, 5);
                 if (vixBars != null && vixBars.Count > 0)
                 {
-                    int evalIdx = GetLastCompletedDailyBarIndex(vixBars, _resolvedVixSymbol);
+                    // VIX follows the US cash session: same 16:00 ET rule, independent of the suffix.
+                    int evalIdx = GetLastCompletedDailyBarIndex(vixBars, UseUsSessionBarLogic);
                     if (evalIdx < 0) return (true, double.NaN, $"VIX completed bar unavailable for '{_resolvedVixSymbol}' — long-block bypassed");
                     double closeVix = vixBars.ClosePrices[evalIdx];
                     if (!double.IsNaN(closeVix) && closeVix > 0)
@@ -876,9 +885,9 @@ namespace cAlgo
 
                 int n = btcBars.Count;
 
-                // Crypto trades 24/7: while the market is open (the usual case) bar n-1 is still
-                // forming and n-2 is the last completed daily bar (no repaint).
-                int evalIdx = GetLastCompletedDailyBarIndex(btcBars, _resolvedCryptoBenchmarkSymbol);
+                // Crypto trades 24/7: the last completed bar is the newest bar whose own 24h window has
+                // elapsed, so a stale feed or a late rollover never costs a bar (no repaint either).
+                int evalIdx = GetLastCompletedDailyBarIndex(btcBars, false);
                 if (evalIdx < 0)
                     return (true, true, double.NaN, double.NaN, "BTC completed bar unavailable — filter bypassed");
 
@@ -1014,37 +1023,42 @@ namespace cAlgo
             }
         }
 
+        /// <summary>
+        /// Index of the last completed daily bar of the scanned symbol (no repaint): the newest bar that
+        /// has traded and can no longer receive data. US equities ('.US' with the session logic enabled)
+        /// are completed at their 16:00 ET session close, every other instrument once its own 24h window
+        /// has elapsed. Outside market hours that is the newest closed bar of the series (never the one
+        /// before it), and a still-forming bar is never evaluated.
+        /// </summary>
         private int GetLastCompletedDailyBarIndex(Bars bars, string symbolName)
         {
+            return GetLastCompletedDailyBarIndex(bars, IsUsEquitySymbol(symbolName) && UseUsSessionBarLogic);
+        }
+
+        /// <summary>
+        /// Index of the last completed daily bar with an explicit session model. The benchmark gates use
+        /// US-session instruments (SPY, VIX) and therefore select their bar with the same 16:00 ET rule
+        /// even when the broker lists them without the '.US' suffix; the crypto benchmark stays on the
+        /// 24h window rule because it trades around the clock. The actual selection - including skipping
+        /// untouched bars the broker pre-created for the next session and bars stamped in the future - is
+        /// shared with TradeManager via <see cref="ReversalEngine.GetLastCompletedDailyBarIndex"/>.
+        /// </summary>
+        private int GetLastCompletedDailyBarIndex(Bars bars, bool usCashEquity)
+        {
             if (bars == null || bars.Count == 0) return -1;
+
             int count = bars.Count;
-
-            int lastIndex = count - 1;
-            int evalIndex;
-            var symbol = Symbols.GetSymbol(symbolName);
-            bool marketOpen = symbol == null || symbol.MarketHours.IsOpened();
-
-            if (IsUsEquitySymbol(symbolName) && UseUsSessionBarLogic)
+            var openTimes = new DateTime[count];
+            var hasTraded = new bool[count];
+            for (int i = 0; i < count; i++)
             {
-                evalIndex = ReversalEngine.GetLastCompletedDailyBarIndex(
-                    bars.OpenTimes[lastIndex], count, Server.TimeInUtc);
-            }
-            else
-            {
-                // Unknown market state is treated as open so a forming bar is never scanned.
-                evalIndex = marketOpen ? lastIndex - 1 : lastIndex;
+                openTimes[i] = bars.OpenTimes[i];
+                hasTraded[i] = !ReversalEngine.IsUntouchedDailyBar(
+                    bars.OpenPrices[i], bars.HighPrices[i], bars.LowPrices[i], bars.ClosePrices[i], bars.TickVolumes[i]);
             }
 
-            if (evalIndex == lastIndex && count >= 2 &&
-                (bars.OpenTimes[lastIndex] > Server.TimeInUtc ||
-                 (bars.TickVolumes[lastIndex] == 0 &&
-                  bars.OpenPrices[lastIndex] == bars.ClosePrices[lastIndex] &&
-                  bars.HighPrices[lastIndex] == bars.LowPrices[lastIndex])))
-            {
-                evalIndex = lastIndex - 1;
-            }
-
-            return evalIndex >= 0 && evalIndex < count ? evalIndex : -1;
+            return ReversalEngine.GetLastCompletedDailyBarIndex(
+                openTimes, hasTraded, usCashEquity, Server.TimeInUtc);
         }
 
         private double GetLivePrice(string symbolName)
@@ -1141,7 +1155,7 @@ namespace cAlgo
             var sb = new StringBuilder();
             sb.AppendLine("=== CONTINUATION SCANNER (Daily, EOD signals, entry next open) ===");
             sb.AppendLine($"Watchlist: {WatchlistName} ({totalCount} symbols) | Trigger: {ScheduleMode} | Direction: {AllowedDirection}");
-            sb.AppendLine($"EMA({EmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | No lookback | No RSI");
+            sb.AppendLine($"EMA({EmaPeriod})/EMA({TrendEmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | No lookback | No RSI");
             sb.AppendLine($"Thresholds: CLV +-{ClvThreshold:F2} | No SL/PT");
             sb.AppendLine($"Benchmark: {spyStatus} | {_spyDetail}");
             sb.AppendLine($"VIX: {vixStatus} | {_vixDetail}");
@@ -1163,7 +1177,7 @@ namespace cAlgo
                     double atrPnl = item.Atr > 0 ? (diff / item.Atr) : 0.0;
                     string pnlSign = atrPnl >= 0 ? "+" : "";
                     string dateTag = item.SignalBarTime != DateTime.MinValue ? item.SignalBarTime.ToString("yyyy-MM-dd") : "?";
-                    sb.AppendLine($"[{dir}] {item.Symbol,-8} | {dateTag} | Live: {item.LivePrice:F4} ({pnlSign}{atrPnl:F2} ATR) | CLV: {item.Clv:F2} | TSI: {item.Tsi:F2} (sig {item.TsiSig:F2}) | EMA21: {item.Ema50:F4} | SMA200: {item.Sma200:F4} | Dist: {item.DistanceAtr:F2} ATR");
+                    sb.AppendLine($"[{dir}] {item.Symbol,-8} | {dateTag} | Live: {item.LivePrice:F4} ({pnlSign}{atrPnl:F2} ATR) | CLV: {item.Clv:F2} | TSI: {item.Tsi:F2} (sig {item.TsiSig:F2}) | EMA21: {item.Ema50:F4} | SMA200: {item.Sma200:F4} | Dist: {item.DistanceAtr:F2} ATR | Confirmed: {item.LastSeenTime:MM-dd HH:mm} UTC");
                 }
             }
             else
