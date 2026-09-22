@@ -99,8 +99,8 @@ namespace cAlgo
         [Parameter("TSI Extreme Level (abs)", Group = "3. Reversal Thresholds", DefaultValue = 10.0, MinValue = 0.0, MaxValue = 100.0, Step = 1.0)]
         public double TsiExtremeLevel { get; set; } = 10.0;
 
-        [Parameter("Min TSI Divergence Drop", Group = "3. Reversal Thresholds", DefaultValue = 1.0, MinValue = 0.0, MaxValue = 100.0, Step = 0.01)]
-        public double MinTsiDivergenceDrop { get; set; } = 1.0;
+        [Parameter("Min TSI Divergence Drop", Group = "3. Reversal Thresholds", DefaultValue = 0.1, MinValue = 0.0, MaxValue = 100.0, Step = 0.01)]
+        public double MinTsiDivergenceDrop { get; set; } = 0.1;
 
         [Parameter("Trigger Window After Divergence (bars)", Group = "3. Reversal Thresholds", DefaultValue = 3, MinValue = 0)]
         public int TriggerWindow { get; set; } = 3;

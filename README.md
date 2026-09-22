@@ -11,7 +11,6 @@ Alert-only cTrader Automate (cAlgo) scanners for daily bars. Both scanners evalu
 | `TradeManager/` | `TradeManager` cBot | Daily account-wide pending-order cancellation and TSI-based position exits |
 | `TrueStrengthIndex/` | `TrueStrengthIndex` indicator | Blau TSI oscillator (25/13/13) with optional signal line and zero-line regime | 
 | `SupportResistance/` | `SupportResistance` indicator | Support/resistance levels (separate, unchanged) |
-| `PpoReversalScanner/` | reference only | Legacy PPO-cross scanner. Does **not** build in this repo (links to projects that are not present). Kept as a reference; do not use |
 
 Each scanner has a pure C# engine (`ReversalEngine.cs` / `ContinuationEngine.cs`) with no cAlgo dependencies, so the signal logic is unit-testable and deterministic. `ContinuationScanner.csproj` links `ReversalEngine.cs` from the ReversalScanner folder for shared indicator math, scheduling, and enum types.
 
@@ -27,7 +26,7 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 
 | | Long Reversal | Short Reversal |
 |---|---|---|
-| Divergence (step 1) | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI < -10, TSI >= reference TSI + 1.0, no lower Low since | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI > +10, TSI <= reference TSI - 1.0, no higher High since |
+| Divergence (step 1) | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI < -10, TSI >= reference TSI + 0.1, no lower Low since | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI > +10, TSI <= reference TSI - 0.1, no higher High since |
 | Trigger (step 2) | CLV >= +0.35 (strong close) | CLV <= -0.35 (weak close) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Confirmation (optional, default off) | Next close > signal-bar High | Next close < signal-bar Low |
@@ -42,9 +41,9 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Close location | CLV >= +0.35 | CLV <= -0.35 |
 | Momentum regime | TSI > 0 | TSI < 0 |
-| Divergence guard | No price/TSI divergence over the last `DivergenceGuardBars` (5) bars (long blocked when price is up but TSI is down) | Mirrored (short blocked when price is down but TSI is up) |
+| Divergence suppression | No active bearish price/TSI divergence with the exact ReversalScanner rule (fresh lookback High with TSI at least `DivergenceMinTsiDrop` (0.1) below the reference extreme TSI, reference > +`DivergenceTsiExtremeLevel` (10)); parameters mirror the reversal thresholds | Mirrored for lows (fresh Low, TSI >= reference + 0.1, reference < -10) |
 
-The continuation momentum gate is regime-only: the TSI zero line decides, and the TSI signal line (EMA 13 of TSI) is computed for display but is not part of the trigger. On top of the regime, a divergence guard (default 5 bars, 0 = off) rejects a setup when price moved net up over the guard window while TSI moved net down (shorts mirrored) — a pullback where price and TSI move together is unaffected. The `TrueStrengthIndex` indicator plots both lines so the regime can be checked visually.
+The continuation momentum gate is regime-only: the TSI zero line decides, and the TSI signal line (EMA 13 of TSI) is computed for display but is not part of the trigger. On top of the regime, the divergence suppression uses the **exact** ReversalScanner divergence detection (`ReversalEngine.HasActiveBearish/BullishTsiDivergence`): a fresh lookback extreme whose TSI diverges from the reference extreme kills the setup in that direction (bearish divergence suppresses longs, bullish divergence suppresses shorts), even when the symbol does not qualify for a reversal signal (e.g. price above SMA200). The TSI extreme gate (reference > +10 / < -10) keeps healthy trends from being suppressed by harmless lower-high lookbacks; `DivergenceTriggerWindow` 0 turns the suppression off. The `TrueStrengthIndex` indicator plots both lines so the regime can be checked visually.
 
 ## Market-wide gates (once per scan pass)
 

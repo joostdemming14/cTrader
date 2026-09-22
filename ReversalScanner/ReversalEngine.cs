@@ -627,6 +627,141 @@ namespace cAlgo
         }
 
         // =========================================================================
+        // --- 2b. DIVERGENCE DETECTION (shared with the Continuation scanner) ---
+        // =========================================================================
+
+        /// <summary>
+        /// Detects an active bearish price/TSI divergence at <paramref name="evalIndex"/> with the exact
+        /// same rule the reversal trigger uses: some bar d in the last <paramref name="triggerWindow"/>
+        /// bars (including the eval bar) made the highest High of its full lookback window, while its
+        /// TSI stayed at or below the TSI of the previous extreme and at least
+        /// <paramref name="minTsiDrop"/> below the TSI of the strong reference extreme (the highest
+        /// High at least <paramref name="minGap"/> bars back with TSI &gt; <paramref name="tsiLevel"/>),
+        /// and no higher High has printed since. When any qualifying divergence bar is found the
+        /// momentum behind the highs is fading, which suppresses continuation longs; the TSI extreme
+        /// gate keeps harmless lookbacks from suppressing healthy trends.
+        /// </summary>
+        public static bool HasActiveBearishTsiDivergence(
+            IReadOnlyList<double> highs,
+            IReadOnlyList<double> tsi,
+            int evalIndex,
+            int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow)
+        {
+            if (highs == null || tsi == null) return false;
+            int n = highs.Count;
+            if (n == 0 || tsi.Count != n || evalIndex < 0 || evalIndex >= n) return false;
+
+            for (int d = evalIndex; d >= evalIndex - triggerWindow && d >= 0; d--)
+            {
+                int windowStart = d - lookback;
+                if (windowStart < 0) break;
+
+                int prevIdx = -1;
+                double prevHigh = double.NaN;
+                for (int i = windowStart; i < d; i++)
+                {
+                    if (prevIdx < 0 || highs[i] > prevHigh)
+                    {
+                        prevIdx = i;
+                        prevHigh = highs[i];
+                    }
+                }
+
+                int rIdx = -1;
+                double rHigh = double.NaN;
+                for (int i = windowStart; i <= d - minGap; i++)
+                {
+                    if (double.IsNaN(tsi[i]) || !(tsi[i] > tsiLevel)) continue;
+                    if (rIdx < 0 || highs[i] > rHigh)
+                    {
+                        rIdx = i;
+                        rHigh = highs[i];
+                    }
+                }
+                if (prevIdx < 0 || rIdx < 0 ||
+                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]))
+                    continue;
+
+                if (highs[d] > prevHigh &&
+                    tsi[d] <= tsi[prevIdx] &&
+                    tsi[d] <= tsi[rIdx] - minTsiDrop)
+                {
+                    bool stale = false;
+                    for (int i = d + 1; i <= evalIndex; i++)
+                    {
+                        if (highs[i] > highs[d]) { stale = true; break; }
+                    }
+                    if (!stale) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Mirror of <see cref="HasActiveBearishTsiDivergence"/> for lows: some bar d in the last
+        /// <paramref name="triggerWindow"/> bars made the lowest Low of its full lookback window while
+        /// its TSI stayed at or above the TSI of the previous extreme and at least
+        /// <paramref name="minTsiDrop"/> above the TSI of the strong reference extreme (the lowest Low
+        /// at least <paramref name="minGap"/> bars back with TSI &lt; -<paramref name="tsiLevel"/>), and no
+        /// lower Low has printed since. Suppresses continuation shorts.
+        /// </summary>
+        public static bool HasActiveBullishTsiDivergence(
+            IReadOnlyList<double> lows,
+            IReadOnlyList<double> tsi,
+            int evalIndex,
+            int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow)
+        {
+            if (lows == null || tsi == null) return false;
+            int n = lows.Count;
+            if (n == 0 || tsi.Count != n || evalIndex < 0 || evalIndex >= n) return false;
+
+            for (int d = evalIndex; d >= evalIndex - triggerWindow && d >= 0; d--)
+            {
+                int windowStart = d - lookback;
+                if (windowStart < 0) break;
+
+                int prevIdx = -1;
+                double prevLow = double.NaN;
+                for (int i = windowStart; i < d; i++)
+                {
+                    if (prevIdx < 0 || lows[i] < prevLow)
+                    {
+                        prevIdx = i;
+                        prevLow = lows[i];
+                    }
+                }
+
+                int rIdx = -1;
+                double rLow = double.NaN;
+                for (int i = windowStart; i <= d - minGap; i++)
+                {
+                    if (double.IsNaN(tsi[i]) || !(tsi[i] < -tsiLevel)) continue;
+                    if (rIdx < 0 || lows[i] < rLow)
+                    {
+                        rIdx = i;
+                        rLow = lows[i];
+                    }
+                }
+                if (prevIdx < 0 || rIdx < 0 ||
+                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]))
+                    continue;
+
+                if (lows[d] < prevLow &&
+                    tsi[d] >= tsi[prevIdx] &&
+                    tsi[d] >= tsi[rIdx] + minTsiDrop)
+                {
+                    bool stale = false;
+                    for (int i = d + 1; i <= evalIndex; i++)
+                    {
+                        if (lows[i] < lows[d]) { stale = true; break; }
+                    }
+                    if (!stale) return true;
+                }
+            }
+            return false;
+        }
+
+        // =========================================================================
         // --- 3. SCAN SCHEDULING & BAR-INDEX HELPERS (no cAlgo dependency) ---
         // =========================================================================
 
