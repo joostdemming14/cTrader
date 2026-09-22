@@ -278,7 +278,14 @@ namespace cAlgo
                 return TsiCrossState.NoData;
             }
 
-            // Only completed bars whose close printed after the order/position existed count.
+            // Only completed bars whose close printed after the order/position existed count:
+            // when even the newest completed bar closed before the creation time there is no
+            // qualifying bar yet (e.g. an intraday entry on a 24/7 instrument, a weekend order
+            // or a pass that runs before the configured close hour), so a cross that printed
+            // before the order/position existed can never arm an exit or a cancel.
+            if (ReversalEngine.GetDailyBarCloseTimeUtc(series.OpenTimes[eval]) <= sinceUtc)
+                return TsiCrossState.NoCross;
+
             int first = eval;
             while (first > 1 && ReversalEngine.GetDailyBarCloseTimeUtc(series.OpenTimes[first - 1]) > sinceUtc)
                 first--;
