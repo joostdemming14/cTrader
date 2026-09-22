@@ -8,18 +8,18 @@ Alert-only cTrader Automate (cAlgo) scanners for daily bars. Both scanners evalu
 |---|---|---|
 | `ReversalScanner/` | `ReversalScanner` cBot | Fade extended moves that roll over (blow-off / capitulation) |
 | `ContinuationScanner/` | `ContinuationScanner` cBot | Trade trend resumptions after a pullback to EMA21 |
-| `TradeManager/` | `TradeManager` cBot | Daily account-wide pending-order cancellation and PPO-based position exits |
+| `TradeManager/` | `TradeManager` cBot | Daily account-wide pending-order cancellation and TSI-based position exits |
 | `TrueStrengthIndex/` | `TrueStrengthIndex` indicator | Blau TSI oscillator (25/13/13) with optional signal line and zero-line regime | 
 | `SupportResistance/` | `SupportResistance` indicator | Support/resistance levels (separate, unchanged) |
 | `PpoReversalScanner/` | reference only | Legacy PPO-cross scanner. Does **not** build in this repo (links to projects that are not present). Kept as a reference; do not use |
 
 Each scanner has a pure C# engine (`ReversalEngine.cs` / `ContinuationEngine.cs`) with no cAlgo dependencies, so the signal logic is unit-testable and deterministic. `ContinuationScanner.csproj` links `ReversalEngine.cs` from the ReversalScanner folder for shared indicator math, scheduling, and enum types.
 
-`TradeManager` is separate from both scanners. It checks once per daily close, applies the SPY/VIX macro gate only to US-equity pending orders, applies the BTC/SMA crypto macro gate only to configured crypto pending orders, cancels unfilled orders on a symbol-specific PPO cross or already-reached order TP, and closes positions only on a symbol-specific PPO cross. It never modifies orders or position SL/TP. PPO exits wait for spread <= 0.05 ATR or force a market close after the configured delay.
+`TradeManager` is separate from both scanners. It checks once per daily close, applies the SPY/VIX macro gate only to US-equity pending orders, applies the BTC/SMA crypto macro gate only to configured crypto pending orders, cancels unfilled orders on a symbol-specific TSI 25/13/13 zero-line cross (against the order direction) or already-reached order TP, and closes positions only on the same TSI zero-line cross against the position direction. It never modifies orders or position SL/TP. TSI exits wait for spread <= 0.05 ATR or force a market close after the configured delay.
 
 ## Signal logic (both scanners, daily EOD bars)
 
-Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter, ATR(14) Wilder, CLV** plus momentum: **PPO(12,26,9) for reversals, TSI(25,13,13) zero-line regime for continuations**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
+Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter, ATR(14) Wilder, CLV** plus momentum: **TSI(25,13,13) — zero-line regime for continuations, divergence trigger for reversals**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
 
 ### Reversal (ReversalScanner)
 
@@ -59,7 +59,7 @@ Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by desi
 
 A trigger uses the latest completed daily bar by default (`Max Setup Age = 0`). Every scan pass re-checks it on the last completed bar; the live BTC quote remains the deliberate exception for the crypto regime gate:
 
-- **Momentum intact**: a reversal long whose PPO crossed back below its signal (or a short above) on the last completed bar is stale and is not reported; a continuation long whose TSI fell back below zero (or a short above zero) is stale and is not reported.
+- **Momentum intact**: a reversal long whose TSI no longer sits at least the minimum drop below its reference TSI (or a short above) is stale and is not reported; a continuation long whose TSI fell back below zero (or a short above zero) is stale and is not reported.
 - **Gates**: completed VIX/SPY regimes must allow the direction; the crypto gate compares live BTC with an SMA of completed BTC bars.
 
 Both scanners evaluate only the latest completed daily bar. Continuations require that same bar to touch EMA21 and close with the required reclaim/breakdown conditions. Reversal confirmation, when enabled, uses the immediately following completed bar after the signal bar.

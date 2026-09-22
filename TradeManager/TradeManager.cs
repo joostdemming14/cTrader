@@ -51,20 +51,20 @@ namespace cAlgo
         [Parameter("Spread Max (x ATR)", Group = "Position Exit", DefaultValue = 0.05, MinValue = 0.001, MaxValue = 0.5, Step = 0.001)]
         public double MaxSpreadAtr { get; set; } = 0.05;
 
-        [Parameter("PPO Fast (EMA)", Group = "PPO", DefaultValue = 16, MinValue = 2)]
-        public int PpoFastPeriod { get; set; } = 16;
+        [Parameter("TSI Long (EMA)", Group = "TSI", DefaultValue = 25, MinValue = 2)]
+        public int TsiLongPeriod { get; set; } = 25;
 
-        [Parameter("PPO Slow (EMA)", Group = "PPO", DefaultValue = 32, MinValue = 5)]
-        public int PpoSlowPeriod { get; set; } = 32;
+        [Parameter("TSI Short (EMA)", Group = "TSI", DefaultValue = 13, MinValue = 2)]
+        public int TsiShortPeriod { get; set; } = 13;
 
-        [Parameter("PPO Signal (EMA)", Group = "PPO", DefaultValue = 9, MinValue = 1)]
-        public int PpoSignalPeriod { get; set; } = 9;
+        [Parameter("TSI Signal (EMA)", Group = "TSI", DefaultValue = 13, MinValue = 1)]
+        public int TsiSignalPeriod { get; set; } = 13;
 
-        [Parameter("ATR Period", Group = "PPO", DefaultValue = 14, MinValue = 1)]
+        [Parameter("ATR Period", Group = "TSI", DefaultValue = 14, MinValue = 1)]
         public int AtrPeriod { get; set; } = 14;
 
         private readonly Dictionary<string, PositionExitState> _positionExitPending = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, PpoCheckResult> _ppoCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TsiCheckResult> _tsiCache = new(StringComparer.OrdinalIgnoreCase);
         private DateTime _lastProcessedCloseDate = DateTime.MinValue;
         private string _resolvedBenchmarkSymbol = "SPY.US";
         private string _resolvedVixSymbol = "VIX";
@@ -102,7 +102,7 @@ namespace cAlgo
 
         private void ProcessDailyClose(DateTime closeDate)
         {
-            _ppoCache.Clear();
+            _tsiCache.Clear();
             var macro = ReadMacroGate();
             var cryptoMacro = ReadCryptoMacroGate();
             CancelOrdersForMacro(macro, cryptoMacro);
@@ -111,7 +111,7 @@ namespace cAlgo
                 EvaluatePendingOrder(order, macro);
 
             foreach (var position in Positions.ToArray())
-                DetectPositionPpoExit(position);
+                DetectPositionTsiExit(position);
 
             Print($"[TradeManager] Daily close processed: {closeDate:yyyy-MM-dd}. Orders={PendingOrders.Count}, Positions={Positions.Count}.");
         }
@@ -146,20 +146,20 @@ namespace cAlgo
                 return;
             }
 
-            if (TryGetPpoCross(order.SymbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out _))
+            if (TryGetTsiZeroCross(order.SymbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out _))
             {
                 bool against = order.TradeType == TradeType.Buy ? crossedAgainstLong : crossedAgainstShort;
                 if (against)
                 {
                     var result = CancelPendingOrder(order);
-                    Print($"[TradeManager] PPO-cancel order {order.Id} {order.SymbolName} {order.TradeType}: {(result.IsSuccessful ? "cancelled" : result.Error.ToString())}.");
+                    Print($"[TradeManager] TSI-cancel order {order.Id} {order.SymbolName} {order.TradeType}: {(result.IsSuccessful ? "cancelled" : result.Error.ToString())}.");
                 }
             }
         }
 
-        private void DetectPositionPpoExit(Position position)
+        private void DetectPositionTsiExit(Position position)
         {
-            if (!TryGetPpoCross(position.SymbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out double atr))
+            if (!TryGetTsiZeroCross(position.SymbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out double atr))
                 return;
 
             bool against = position.TradeType == TradeType.Buy ? crossedAgainstLong : crossedAgainstShort;
@@ -191,7 +191,7 @@ namespace cAlgo
 
                 if (pending.Value.Atr <= 0.0 || double.IsNaN(pending.Value.Atr))
                 {
-                    Print($"[TradeManager] PPO exit skipped for position {position.Id} {position.SymbolName}: ATR unavailable.");
+                    Print($"[TradeManager] TSI exit skipped for position {position.Id} {position.SymbolName}: ATR unavailable.");
                     continue;
                 }
 
@@ -201,7 +201,7 @@ namespace cAlgo
                 if (!spreadAcceptable && !delayExpired) continue;
 
                 var result = ClosePosition(position);
-                Print($"[TradeManager] PPO-close position {position.Id} {position.SymbolName} {position.TradeType}: {(result.IsSuccessful ? "closed" : result.Error.ToString())}.");
+                Print($"[TradeManager] TSI-close position {position.Id} {position.SymbolName} {position.TradeType}: {(result.IsSuccessful ? "closed" : result.Error.ToString())}.");
                 if (result.IsSuccessful)
                     _positionExitPending.Remove(pending.Key);
             }
@@ -217,9 +217,9 @@ namespace cAlgo
                 : symbol.Ask <= order.TakeProfit.Value;
         }
 
-        private bool TryGetPpoCross(string symbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out double atr)
+        private bool TryGetTsiZeroCross(string symbolName, out bool crossedAgainstLong, out bool crossedAgainstShort, out double atr)
         {
-            if (_ppoCache.TryGetValue(symbolName, out var cached))
+            if (_tsiCache.TryGetValue(symbolName, out var cached))
             {
                 crossedAgainstLong = cached.CrossedAgainstLong;
                 crossedAgainstShort = cached.CrossedAgainstShort;
@@ -232,10 +232,10 @@ namespace cAlgo
             atr = double.NaN;
 
             var bars = LoadDailyBars(symbolName, 250);
-            if (bars == null || bars.Count < PpoSlowPeriod + PpoSignalPeriod + AtrPeriod + 3)
+            if (bars == null || bars.Count < TsiLongPeriod + TsiShortPeriod + TsiSignalPeriod + AtrPeriod + 3)
             {
-                Print($"[TradeManager] PPO check skipped for {symbolName}: insufficient daily bars.");
-                _ppoCache[symbolName] = new PpoCheckResult(false, false, false, double.NaN);
+                Print($"[TradeManager] TSI check skipped for {symbolName}: insufficient daily bars.");
+                _tsiCache[symbolName] = new TsiCheckResult(false, false, false, double.NaN);
                 return false;
             }
 
@@ -243,7 +243,7 @@ namespace cAlgo
             int eval = IsDailyBarForming(bars, last) ? last - 1 : last;
             if (eval < 2)
             {
-                _ppoCache[symbolName] = new PpoCheckResult(false, false, false, double.NaN);
+                _tsiCache[symbolName] = new TsiCheckResult(false, false, false, double.NaN);
                 return false;
             }
 
@@ -257,22 +257,20 @@ namespace cAlgo
                 lows[i] = bars.LowPrices[i];
             }
 
-            var ppo = ReversalEngine.ComputePpo(closes, PpoFastPeriod, PpoSlowPeriod, PpoSignalPeriod);
+            var tsi = ReversalEngine.ComputeTsi(closes, TsiLongPeriod, TsiShortPeriod, TsiSignalPeriod);
             var atrValues = ReversalEngine.ComputeAtr(highs, lows, closes, AtrPeriod);
-            double previous = ppo.Ppo[eval - 1];
-            double previousSignal = ppo.PpoSig[eval - 1];
-            double current = ppo.Ppo[eval];
-            double currentSignal = ppo.PpoSig[eval];
+            double previous = tsi.Tsi[eval - 1];
+            double current = tsi.Tsi[eval];
             atr = atrValues[eval];
-            if (double.IsNaN(previous) || double.IsNaN(previousSignal) || double.IsNaN(current) || double.IsNaN(currentSignal) || double.IsNaN(atr) || atr <= 0.0)
+            if (double.IsNaN(previous) || double.IsNaN(current) || double.IsNaN(atr) || atr <= 0.0)
             {
-                _ppoCache[symbolName] = new PpoCheckResult(false, false, false, atr);
+                _tsiCache[symbolName] = new TsiCheckResult(false, false, false, atr);
                 return false;
             }
 
-            crossedAgainstLong = previous >= previousSignal && current < currentSignal;
-            crossedAgainstShort = previous <= previousSignal && current > currentSignal;
-            _ppoCache[symbolName] = new PpoCheckResult(true, crossedAgainstLong, crossedAgainstShort, atr);
+            crossedAgainstLong = previous > 0.0 && current <= 0.0;
+            crossedAgainstShort = previous < 0.0 && current >= 0.0;
+            _tsiCache[symbolName] = new TsiCheckResult(true, crossedAgainstLong, crossedAgainstShort, atr);
             return crossedAgainstLong || crossedAgainstShort;
         }
 
@@ -442,9 +440,9 @@ namespace cAlgo
             public double Atr { get; }
         }
 
-        private readonly struct PpoCheckResult
+        private readonly struct TsiCheckResult
         {
-            public PpoCheckResult(bool hasUsableData, bool crossedAgainstLong, bool crossedAgainstShort, double atr)
+            public TsiCheckResult(bool hasUsableData, bool crossedAgainstLong, bool crossedAgainstShort, double atr)
             {
                 HasUsableData = hasUsableData;
                 CrossedAgainstLong = crossedAgainstLong;
