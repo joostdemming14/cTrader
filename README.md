@@ -28,7 +28,7 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | | Long Reversal | Short Reversal |
 |---|---|---|
 | Divergence (step 1) | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI < -10, TSI >= reference TSI + 1.0, no lower Low since | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI > +10, TSI <= reference TSI - 1.0, no higher High since |
-| Trigger (step 2) | CLV >= +0.25 (strong close) | CLV <= -0.25 (weak close) |
+| Trigger (step 2) | CLV >= +0.35 (strong close) | CLV <= -0.35 (weak close) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Confirmation (optional, default off) | Next close > signal-bar High | Next close < signal-bar Low |
 
@@ -40,7 +40,7 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | Trend alignment | EMA21 > EMA50 | EMA21 < EMA50 |
 | Trigger | Close > EMA21 (reclaim) | Close < EMA21 (breakdown) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
-| Close location | CLV >= +0.25 | CLV <= -0.25 |
+| Close location | CLV >= +0.35 | CLV <= -0.35 |
 | Momentum regime | TSI > 0 | TSI < 0 |
 | Divergence guard | No price/TSI divergence over the last `DivergenceGuardBars` (5) bars (long blocked when price is up but TSI is down) | Mirrored (short blocked when price is down but TSI is up) |
 

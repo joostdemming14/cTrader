@@ -13,9 +13,9 @@ namespace cAlgo
     ///
     /// Final continuation logic:
     ///   Long Continuation: the latest completed bar touches Low &lt;= EMA21, then closes &gt; EMA21 with
-    ///     EMA21 &gt; EMA50, CLV &gt;= +0.25, TSI &gt; 0 (momentum regime), and SPY &gt; SPY_SMA50.
+    ///     EMA21 &gt; EMA50, CLV &gt;= +0.35, TSI &gt; 0 (momentum regime), and SPY &gt; SPY_SMA50.
     ///   Short Continuation: the latest completed bar touches High &gt;= EMA21, then closes &lt; EMA21 with
-    ///     EMA21 &lt; EMA50, CLV &lt;= -0.25, TSI &lt; 0 (momentum regime), and SPY &lt; SPY_SMA50.
+    ///     EMA21 &lt; EMA50, CLV &lt;= -0.35, TSI &lt; 0 (momentum regime), and SPY &lt; SPY_SMA50.
     ///
     /// The TSI zero line is the decisive momentum regime check; the TSI signal line is computed
     /// for display only and is not part of the trigger. RSI is intentionally not used.
@@ -85,8 +85,8 @@ namespace cAlgo
         // =========================================================================
         // --- 3. Continuation Thresholds ---
         // =========================================================================
-        [Parameter("CLV Threshold (abs)", Group = "3. Continuation Thresholds", DefaultValue = 0.25, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
-        public double ClvThreshold { get; set; } = 0.25;
+        [Parameter("CLV Threshold (abs)", Group = "3. Continuation Thresholds", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
+        public double ClvThreshold { get; set; } = 0.35;
 
         [Parameter("Divergence Guard Bars (0 = off)", Group = "3. Continuation Thresholds", DefaultValue = 5, MinValue = 0, MaxValue = 50)]
         public int DivergenceGuardBars { get; set; } = 5;

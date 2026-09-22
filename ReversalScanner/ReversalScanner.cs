@@ -16,9 +16,9 @@ namespace cAlgo
     ///     with TSI at least 1.0 below the TSI at the reference extreme (bearish divergence). The
     ///     REFERENCE TSI must have been &gt; +10 (a genuinely strong prior move; a bear-market rally
     ///     from -30 to +10 qualifies); the new extreme's own TSI is unconstrained.
-    ///     Trigger: CLV &lt;= -0.25 (weak close), SPY &lt; SPY_SMA50.
+    ///     Trigger: CLV &lt;= -0.35 (weak close), SPY &lt; SPY_SMA50.
     ///   Long Reversal trigger: fresh lookback Low with TSI at least 1.0 above the reference extreme
-    ///     TSI (reference &lt; -10), CLV &gt;= +0.25, SPY &gt; SPY_SMA50.
+    ///     TSI (reference &lt; -10), CLV &gt;= +0.35, SPY &gt; SPY_SMA50.
     ///
     /// Two-step trigger: the divergence is detected on any bar in the last `TriggerWindow` bars
     /// (including the signal bar itself), and the TRIGGER is the weak close (CLV) on the signal
@@ -84,11 +84,11 @@ namespace cAlgo
         // =========================================================================
         // --- 3. Reversal Thresholds ---
         // =========================================================================
-        [Parameter("CLV Short Max (<=)", Group = "3. Reversal Thresholds", DefaultValue = -0.25, MinValue = -1.0, MaxValue = 0.0, Step = 0.05)]
-        public double ClvShortMax { get; set; } = -0.25;
+        [Parameter("CLV Short Max (<=)", Group = "3. Reversal Thresholds", DefaultValue = -0.35, MinValue = -1.0, MaxValue = 0.0, Step = 0.05)]
+        public double ClvShortMax { get; set; } = -0.35;
 
-        [Parameter("CLV Long Min (>=)", Group = "3. Reversal Thresholds", DefaultValue = 0.25, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
-        public double ClvLongMin { get; set; } = 0.25;
+        [Parameter("CLV Long Min (>=)", Group = "3. Reversal Thresholds", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
+        public double ClvLongMin { get; set; } = 0.35;
 
         [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 20, MinValue = 5)]
         public int DivergenceLookback { get; set; } = 20;
