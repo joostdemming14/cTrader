@@ -90,11 +90,13 @@ namespace cAlgo
     ///
     /// Long Continuation trigger on bar t:
     ///   Low <= EMA21 on the trigger bar, then Close > EMA21, EMA21 > EMA50, Close > SMA200,
-    ///   CLV >= +clvMin, TSI > 0 (momentum regime), SPY > SPY_SMA50.
+    ///   CLV >= +clvMin, TSI > 0 (momentum regime), no price/TSI divergence over divergenceGuardBars
+    ///   (price up while TSI down), SPY > SPY_SMA50.
     ///
     /// Short Continuation trigger on bar t:
     ///   High >= EMA21 on the trigger bar, then Close < EMA21, EMA21 < EMA50, Close < SMA200,
-    ///   CLV <= -clvMin, TSI < 0 (momentum regime), SPY < SPY_SMA50.
+    ///   CLV <= -clvMin, TSI < 0 (momentum regime), no price/TSI divergence over divergenceGuardBars
+    ///   (price down while TSI up), SPY < SPY_SMA50.
     ///
     /// Momentum is regime-only: the TSI zero line decides, the TSI signal line is not part of the
     /// continuation trigger (it is computed for display only). The scanner does not compute SL/PT (alert-only).
@@ -110,7 +112,7 @@ namespace cAlgo
             IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
             IReadOnlyList<double> ema21, IReadOnlyList<double> ema50, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
-            double clvMin, bool spyLongOk)
+            double clvMin, int divergenceGuardBars, bool spyLongOk)
         {
             if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr, evalIndex))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long, "Null or out-of-range input");
@@ -147,6 +149,9 @@ namespace cAlgo
             if (!(tsiT > 0.0))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"TSI {tsiT:F2} not > 0 (momentum regime)");
+            if (HasBearishPriceTsiDivergence(closes, tsi, t, divergenceGuardBars))
+                return ContinuationSetupResult.Reject(ReversalDirection.Long,
+                    $"Price up but TSI down over last {divergenceGuardBars} bars (active divergence)");
             if (!spyLongOk)
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     "SPY benchmark gate failed (SPY not > SPY_SMA50)");
@@ -166,7 +171,7 @@ namespace cAlgo
             IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
             IReadOnlyList<double> ema21, IReadOnlyList<double> ema50, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
-            double clvMin, bool spyShortOk)
+            double clvMin, int divergenceGuardBars, bool spyShortOk)
         {
             if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr, evalIndex))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short, "Null or out-of-range input");
@@ -203,6 +208,9 @@ namespace cAlgo
             if (!(tsiT < 0.0))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"TSI {tsiT:F2} not < 0 (momentum regime)");
+            if (HasBullishPriceTsiDivergence(closes, tsi, t, divergenceGuardBars))
+                return ContinuationSetupResult.Reject(ReversalDirection.Short,
+                    $"Price down but TSI up over last {divergenceGuardBars} bars (active divergence)");
             if (!spyShortOk)
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     "SPY benchmark gate failed (SPY not < SPY_SMA50)");
@@ -226,6 +234,7 @@ namespace cAlgo
             int evalIndex,
             ReversalScanDirection direction,
             double clvMin,
+            int divergenceGuardBars,
             bool spyLongOk, bool spyShortOk)
         {
             ContinuationSetupResult res = ContinuationSetupResult.Reject(ReversalDirection.None, "Not evaluated");
@@ -233,7 +242,7 @@ namespace cAlgo
             if (direction != ReversalScanDirection.ShortOnly)
             {
                 var lon = EvaluateLongContinuation(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr,
-                    evalIndex, clvMin, spyLongOk);
+                    evalIndex, clvMin, divergenceGuardBars, spyLongOk);
                 if (lon.IsTriggered) return lon;
                 if (direction == ReversalScanDirection.LongOnly) return lon;
                 res = lon;
@@ -242,7 +251,7 @@ namespace cAlgo
             if (direction != ReversalScanDirection.LongOnly)
             {
                 var sh = EvaluateShortContinuation(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr,
-                    evalIndex, clvMin, spyShortOk);
+                    evalIndex, clvMin, divergenceGuardBars, spyShortOk);
                 if (sh.IsTriggered) return sh;
                 res = sh;
             }
@@ -253,6 +262,35 @@ namespace cAlgo
         // =========================================================================
         // --- PRIVATE UTILITIES ---
         // =========================================================================
+
+        /// <summary>
+        /// True when price rose net over the guard window while TSI fell: active bearish price/TSI divergence
+        /// (fading momentum under a rising price). Returns false when the guard is off, history is
+        /// insufficient, or either value is NaN.
+        /// </summary>
+        private static bool HasBearishPriceTsiDivergence(IReadOnlyList<double> closes, IReadOnlyList<double> tsi, int t, int divergenceGuardBars)
+        {
+            if (divergenceGuardBars <= 0) return false;
+            int p = t - divergenceGuardBars;
+            if (p < 0) return false;
+            double curTsi = tsi[t], prevTsi = tsi[p];
+            if (double.IsNaN(curTsi) || double.IsNaN(prevTsi)) return false;
+            return closes[t] > closes[p] && curTsi < prevTsi;
+        }
+
+        /// <summary>
+        /// True when price fell net over the guard window while TSI rose: active bullish price/TSI divergence.
+        /// Returns false when the guard is off, history is insufficient, or either value is NaN.
+        /// </summary>
+        private static bool HasBullishPriceTsiDivergence(IReadOnlyList<double> closes, IReadOnlyList<double> tsi, int t, int divergenceGuardBars)
+        {
+            if (divergenceGuardBars <= 0) return false;
+            int p = t - divergenceGuardBars;
+            if (p < 0) return false;
+            double curTsi = tsi[t], prevTsi = tsi[p];
+            if (double.IsNaN(curTsi) || double.IsNaN(prevTsi)) return false;
+            return closes[t] < closes[p] && curTsi > prevTsi;
+        }
 
         private static double ClvOf(double close, double high, double low)
         {

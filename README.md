@@ -42,8 +42,9 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Close location | CLV >= +0.25 | CLV <= -0.25 |
 | Momentum regime | TSI > 0 | TSI < 0 |
+| Divergence guard | No price/TSI divergence over the last `DivergenceGuardBars` (5) bars (long blocked when price is up but TSI is down) | Mirrored (short blocked when price is down but TSI is up) |
 
-The continuation momentum gate is regime-only: the TSI zero line decides, and the TSI signal line (EMA 13 of TSI) is computed for display but is not part of the trigger. The `TrueStrengthIndex` indicator plots both lines so the regime can be checked visually.
+The continuation momentum gate is regime-only: the TSI zero line decides, and the TSI signal line (EMA 13 of TSI) is computed for display but is not part of the trigger. On top of the regime, a divergence guard (default 5 bars, 0 = off) rejects a setup when price moved net up over the guard window while TSI moved net down (shorts mirrored) — a pullback where price and TSI move together is unaffected. The `TrueStrengthIndex` indicator plots both lines so the regime can be checked visually. The `TrueStrengthIndex` indicator plots both lines so the regime can be checked visually.
 
 ## Market-wide gates (once per scan pass)
 
