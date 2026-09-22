@@ -90,8 +90,20 @@ namespace cAlgo
         [Parameter("CLV Threshold (abs)", Group = "3. Continuation Thresholds", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
         public double ClvThreshold { get; set; } = 0.35;
 
-        [Parameter("Divergence Guard Bars (0 = off)", Group = "3. Continuation Thresholds", DefaultValue = 5, MinValue = 0, MaxValue = 50)]
-        public int DivergenceGuardBars { get; set; } = 5;
+        [Parameter("Divergence Lookback (bars)", Group = "3. Continuation Thresholds", DefaultValue = 20, MinValue = 5)]
+        public int DivergenceLookback { get; set; } = 20;
+
+        [Parameter("Divergence Min Gap (bars)", Group = "3. Continuation Thresholds", DefaultValue = 3, MinValue = 1)]
+        public int DivergenceMinGap { get; set; } = 3;
+
+        [Parameter("Divergence TSI Extreme Level (abs)", Group = "3. Continuation Thresholds", DefaultValue = 10.0, MinValue = 0.0, MaxValue = 100.0, Step = 1.0)]
+        public double DivergenceTsiExtremeLevel { get; set; } = 10.0;
+
+        [Parameter("Divergence Min TSI Gap", Group = "3. Continuation Thresholds", DefaultValue = 0.1, MinValue = 0.0, MaxValue = 100.0, Step = 0.01)]
+        public double DivergenceMinTsiDrop { get; set; } = 0.1;
+
+        [Parameter("Divergence Trigger Window (bars, 0 = off)", Group = "3. Continuation Thresholds", DefaultValue = 3, MinValue = 0, MaxValue = 50)]
+        public int DivergenceTriggerWindow { get; set; } = 3;
 
         // =========================================================================
         // --- 4. Benchmark (SPY) Filter ---
@@ -252,7 +264,8 @@ namespace cAlgo
 
             Print($"[ContinuationScanner] Started. Watchlist '{WatchlistName}' loaded with {_watchlistSymbols.Count} symbols.");
             Print($"[ContinuationScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
-            Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod})/TrendEMA({TrendEmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Divergence guard {DivergenceGuardBars} bars. (No RSI — TSI zero-line regime + divergence guard on trigger bar; signal line display-only.)");
+            Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod})/TrendEMA({TrendEmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}). (No RSI — TSI zero-line regime + reversal-style divergence suppression on the trigger bar; signal line display-only.)");
+            Print($"[ContinuationScanner] Divergence suppression (same rule as the ReversalScanner): lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {DivergenceTsiExtremeLevel:F1}, min TSI gap {DivergenceMinTsiDrop:F2}, trigger window {DivergenceTriggerWindow} bars (0 = off).");
             Print($"[ContinuationScanner] Thresholds: CLV +-{ClvThreshold:F2}. No SL/PT computed (alert-only).");
             Print($"[ContinuationScanner] Latest closed bar must touch EMA21 and reclaim/break it. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
             Print($"[ContinuationScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
@@ -503,7 +516,7 @@ namespace cAlgo
                 return (false, false);
             }
 
-            int required = Math.Max(MinBarsToScan, Sma200Period + TsiLongPeriod + TsiShortPeriod + DivergenceGuardBars + 20);
+            int required = Math.Max(MinBarsToScan, Math.Max(Sma200Period + TsiLongPeriod + TsiShortPeriod, DivergenceLookback + DivergenceMinGap) + 20);
             var bars = EnsureBarsLoaded(TimeFrame.Daily, symbolName, required);
             if (bars == null)
             {
@@ -520,7 +533,7 @@ namespace cAlgo
             // session boundary, but it can never re-enable scanning of a live bar.
             int targetIdx = GetLastCompletedDailyBarIndex(bars, symbolName);
 
-            if (targetIdx < 0 || targetIdx < Sma200Period + TsiLongPeriod + TsiShortPeriod + DivergenceGuardBars)
+            if (targetIdx < 0 || targetIdx < Math.Max(Sma200Period + TsiLongPeriod + TsiShortPeriod, DivergenceLookback + DivergenceMinGap))
             {
                 RecordSkip(symbolName, $"No completed daily bar with sufficient warmup (target index {targetIdx})");
                 return (false, false);
@@ -579,7 +592,9 @@ namespace cAlgo
             {
                 var res = ContinuationEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig,
                     ema50, slowEma50, sma200, atr, evalIdx, AllowedDirection,
-                    ClvThreshold, DivergenceGuardBars, spyLongForSymbol, spyShortForSymbol);
+                    ClvThreshold,
+                    DivergenceLookback, DivergenceMinGap, DivergenceTsiExtremeLevel, DivergenceMinTsiDrop, DivergenceTriggerWindow,
+                    spyLongForSymbol, spyShortForSymbol);
 
                 if (!res.IsTriggered)
                 {
@@ -588,7 +603,7 @@ namespace cAlgo
                 else
                 {
                     var armed = BuildArmedSetup(symbolName, res, bars, evalIdx);
-                    if (IsSetupStillValid(armed, symbolName, tsi.Tsi, tsi.TsiSig, closes, atr, targetIdx))
+                    if (IsSetupStillValid(armed, symbolName, tsi.Tsi, tsi.TsiSig, closes, highs, lows, atr, targetIdx))
                         bestSetup = armed;
                 }
             }
@@ -624,7 +639,7 @@ namespace cAlgo
         }
 
         private bool IsSetupStillValid(ArmedContinuationSetup setup, string symbolName,
-            double[] tsi, double[] tsiSig, double[] closes, double[] atr, int targetIdx)
+            double[] tsi, double[] tsiSig, double[] closes, double[] highs, double[] lows, double[] atr, int targetIdx)
         {
             if (setup.Direction == ReversalDirection.Long &&
                 RequireVixFilter && IsUsEquitySymbol(symbolName) && !_vixLongOk)
@@ -664,22 +679,18 @@ namespace cAlgo
                 RecordReject($"Live TSI {liveTsi:F2} not < 0 — momentum regime no longer bearish");
                 return false;
             }
-            if (DivergenceGuardBars > 0)
+            if (DivergenceTriggerWindow > 0)
             {
-                int guardPrevIdx = targetIdx - DivergenceGuardBars;
-                if (guardPrevIdx < 0 || double.IsNaN(tsi[guardPrevIdx]))
+                if (setup.Direction == ReversalDirection.Long &&
+                    ReversalEngine.HasActiveBearishTsiDivergence(highs, tsi, targetIdx, DivergenceLookback, DivergenceMinGap, DivergenceTsiExtremeLevel, DivergenceMinTsiDrop, DivergenceTriggerWindow))
                 {
-                    RecordReject("Divergence guard reference NaN/unavailable - cannot confirm no active divergence");
+                    RecordReject($"Active bearish price/TSI divergence (fresh high with lower TSI) — momentum fading under the highs");
                     return false;
                 }
-                if (setup.Direction == ReversalDirection.Long && closes[targetIdx] > closes[guardPrevIdx] && liveTsi < tsi[guardPrevIdx])
+                if (setup.Direction == ReversalDirection.Short &&
+                    ReversalEngine.HasActiveBullishTsiDivergence(lows, tsi, targetIdx, DivergenceLookback, DivergenceMinGap, DivergenceTsiExtremeLevel, DivergenceMinTsiDrop, DivergenceTriggerWindow))
                 {
-                    RecordReject($"Price up but TSI {liveTsi:F2} < TSI {tsi[guardPrevIdx]:F2} {DivergenceGuardBars} bars ago - active divergence");
-                    return false;
-                }
-                if (setup.Direction == ReversalDirection.Short && closes[targetIdx] < closes[guardPrevIdx] && liveTsi > tsi[guardPrevIdx])
-                {
-                    RecordReject($"Price down but TSI {liveTsi:F2} > TSI {tsi[guardPrevIdx]:F2} {DivergenceGuardBars} bars ago - active divergence");
+                    RecordReject($"Active bullish price/TSI divergence (fresh low with higher TSI) — momentum recovering under the lows");
                     return false;
                 }
             }
