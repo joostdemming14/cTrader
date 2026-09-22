@@ -11,18 +11,22 @@ namespace cAlgo
     /// <summary>
     /// Reversal Scanner for the cTrader 2.0 suite (Daily bars, EOD signals, entry next open).
     ///
-    /// Final trigger logic (no RSI):
-    ///   Short Reversal trigger: Close &lt; lookback_high, CLV &lt;= -0.35, Close &gt; EMA50 + 2*ATR,
-    ///     PPO &lt; PPOsig, SPY &lt; SPY_SMA50.
-    ///   Long Reversal trigger: Close &gt; lookback_low, CLV &gt;= +0.35, Close &lt; EMA50 - 2*ATR,
-    ///     PPO &gt; PPOsig, SPY &gt; SPY_SMA50.
+    /// Final trigger logic (TSI divergence, no pivot confirmation lag):
+    ///   Short Reversal trigger: fresh lookback High (vs the reference High at least MinGap bars back)
+    ///     with TSI at least 1.0 below the TSI at the reference extreme (bearish divergence). The
+    ///     REFERENCE TSI must have been &gt; +10 (a genuinely strong prior move; a bear-market rally
+    ///     from -30 to +10 qualifies); the new extreme's own TSI is unconstrained.
+    ///     Trigger: CLV &lt;= -0.35 (weak close). SPY gate optional (default off).
+    ///   Long Reversal trigger: fresh lookback Low with TSI at least 1.0 above the reference extreme
+    ///     TSI (reference &lt; -10), CLV &gt;= +0.35. SPY gate optional (default off).
     ///
-    /// The trailing lookback-bar high/low acts as the structural level, and PPO on the trigger bar is the
-    /// decisive momentum check. There is no separate retest requirement in the definitive spec.
+    /// Two-step trigger: the divergence is detected on any bar in the last `TriggerWindow` bars
+    /// (including the signal bar itself), and the TRIGGER is the weak close (CLV) on the signal
+    /// bar. Next-bar confirmation is available but OFF by default. The TSI signal line is display only.
     ///
     /// All conditions are evaluated on the close of the last completed daily bar (no repaint).
-    /// This is an alert-only scanner: it reports Entry (next open), SL and PT (EMA21) levels.
-    /// It does not place trades. AccessRights = None (no network / filesystem / trade execution).
+    /// This is an alert-only scanner: it reports Entry (next open) only. It does not place trades.
+    /// AccessRights = None (no network / filesystem / trade execution).
     /// </summary>
     [Robot(AccessRights = AccessRights.None, TimeZone = TimeZones.UTC)]
     public class ReversalScanner : Robot
@@ -68,26 +72,38 @@ namespace cAlgo
         [Parameter("ATR Period", Group = "2. Indicators", DefaultValue = 14, MinValue = 1)]
         public int AtrPeriod { get; set; } = 14;
 
-        [Parameter("PPO Fast (EMA)", Group = "2. Indicators", DefaultValue = 16, MinValue = 2)]
-        public int PpoFastPeriod { get; set; } = 12;
+        [Parameter("TSI Long EMA", Group = "2. Indicators", DefaultValue = 25, MinValue = 1)]
+        public int TsiLongPeriod { get; set; } = 25;
 
-        [Parameter("PPO Slow (EMA)", Group = "2. Indicators", DefaultValue = 32, MinValue = 5)]
-        public int PpoSlowPeriod { get; set; } = 26;
+        [Parameter("TSI Short EMA", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
+        public int TsiShortPeriod { get; set; } = 13;
 
-        [Parameter("PPO Signal (EMA)", Group = "2. Indicators", DefaultValue = 9, MinValue = 1)]
-        public int PpoSignalPeriod { get; set; } = 9;
+        [Parameter("TSI Signal (EMA)", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
+        public int TsiSignalPeriod { get; set; } = 13;
 
         // =========================================================================
         // --- 3. Reversal Thresholds ---
         // =========================================================================
-        [Parameter("CLV Short Max (<=)", Group = "3. Reversal Thresholds", DefaultValue = -0.25, MinValue = -1.0, MaxValue = 0.0, Step = 0.05)]
-        public double ClvShortMax { get; set; } = -0.25;
+        [Parameter("CLV Short Max (<=)", Group = "3. Reversal Thresholds", DefaultValue = -0.35, MinValue = -1.0, MaxValue = 0.0, Step = 0.05)]
+        public double ClvShortMax { get; set; } = -0.35;
 
-        [Parameter("CLV Long Min (>=)", Group = "3. Reversal Thresholds", DefaultValue = 0.25, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
-        public double ClvLongMin { get; set; } = 0.25;
+        [Parameter("CLV Long Min (>=)", Group = "3. Reversal Thresholds", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
+        public double ClvLongMin { get; set; } = 0.35;
 
-        [Parameter("EMA Extension Buffer (x ATR)", Group = "3. Reversal Thresholds", DefaultValue = 2.0, MinValue = 0.0, MaxValue = 5.0, Step = 0.1)]
-        public double EmaBufferAtr { get; set; } = 2.0;
+        [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 20, MinValue = 5)]
+        public int DivergenceLookback { get; set; } = 20;
+
+        [Parameter("Divergence Min Gap (bars)", Group = "3. Reversal Thresholds", DefaultValue = 3, MinValue = 1)]
+        public int DivergenceMinGap { get; set; } = 3;
+
+        [Parameter("TSI Extreme Level (abs)", Group = "3. Reversal Thresholds", DefaultValue = 10.0, MinValue = 0.0, MaxValue = 100.0, Step = 1.0)]
+        public double TsiExtremeLevel { get; set; } = 10.0;
+
+        [Parameter("Min TSI Divergence Drop", Group = "3. Reversal Thresholds", DefaultValue = 1.0, MinValue = 0.0, MaxValue = 100.0, Step = 0.01)]
+        public double MinTsiDivergenceDrop { get; set; } = 1.0;
+
+        [Parameter("Trigger Window After Divergence (bars)", Group = "3. Reversal Thresholds", DefaultValue = 3, MinValue = 0)]
+        public int TriggerWindow { get; set; } = 3;
 
         [Parameter("Require 200 SMA Trend Filter", Group = "3. Reversal Thresholds", DefaultValue = true)]
         public bool Require200SmaFilter { get; set; } = true;
@@ -95,14 +111,14 @@ namespace cAlgo
         [Parameter("Daily 200 SMA Period", Group = "3. Reversal Thresholds", DefaultValue = 200, MinValue = 20)]
         public int Sma200Period { get; set; } = 200;
 
-        [Parameter("Require Next-Bar Reversal Confirmation", Group = "3. Reversal Thresholds", DefaultValue = true)]
-        public bool RequireReversalConfirmation { get; set; } = true;
+        [Parameter("Require Next-Bar Reversal Confirmation", Group = "3. Reversal Thresholds", DefaultValue = false)]
+        public bool RequireReversalConfirmation { get; set; } = false;
 
         // =========================================================================
         // --- 4. Benchmark (SPY) Filter ---
         // =========================================================================
-        [Parameter("Require Benchmark Filter (SPY vs SMA50)", Group = "4. Benchmark Filter", DefaultValue = true)]
-        public bool RequireBenchmarkFilter { get; set; } = true;
+        [Parameter("Require Benchmark Filter (SPY vs SMA50)", Group = "4. Benchmark Filter", DefaultValue = false)]
+        public bool RequireBenchmarkFilter { get; set; } = false;
 
         [Parameter("Benchmark Symbol", Group = "4. Benchmark Filter", DefaultValue = "SPY.US")]
         public string BenchmarkSymbol { get; set; } = "SPY.US";
@@ -128,8 +144,8 @@ namespace cAlgo
         // =========================================================================
         // --- 4c. Crypto Benchmark (BTC vs SMA) Filter (crypto symbols only) ---
         // =========================================================================
-        [Parameter("Require Crypto Benchmark Filter (BTC vs SMA)", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = true)]
-        public bool RequireCryptoBenchmarkFilter { get; set; } = true;
+        [Parameter("Require Crypto Benchmark Filter (BTC vs SMA)", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = false)]
+        public bool RequireCryptoBenchmarkFilter { get; set; } = false;
 
         [Parameter("Crypto Benchmark Symbol", Group = "4c. Crypto Benchmark (BTC vs SMA)", DefaultValue = "BTCUSD")]
         public string CryptoBenchmarkSymbol { get; set; } = "BTCUSD";
@@ -161,8 +177,9 @@ namespace cAlgo
             public DateTime SignalBarTime { get; set; }
             public double Close { get; set; }
             public double Clv { get; set; }
-            public double Ppo { get; set; }
-            public double PpoSig { get; set; }
+            public double Tsi { get; set; }
+            public double TsiSig { get; set; }
+            public double RefTsi { get; set; }
             public double Ema21 { get; set; }
             public double Atr { get; set; }
             public double DistanceAtr { get; set; }
@@ -181,7 +198,7 @@ namespace cAlgo
             public double[] Ema21 { get; init; } = Array.Empty<double>();
             public double[] Sma200 { get; init; } = Array.Empty<double>();
             public double[] Atr { get; init; } = Array.Empty<double>();
-            public (double[] Ppo, double[] PpoSig) Ppo { get; init; }
+            public (double[] Tsi, double[] TsiSig) Tsi { get; init; }
         }
 
         // State tracking
@@ -254,8 +271,8 @@ namespace cAlgo
 
             Print($"[ReversalScanner] Started. Watchlist '{WatchlistName}' loaded with {_watchlistSymbols.Count} symbols.");
             Print($"[ReversalScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
-            Print($"[ReversalScanner] Indicators: EMA({EmaPeriod}) | ATR({AtrPeriod}) | PPO({PpoFastPeriod},{PpoSlowPeriod},{PpoSignalPeriod}) | No lookback. (No RSI — PPO on trigger bar only.)");
-            Print($"[ReversalScanner] Thresholds: CLV short <= {ClvShortMax:F2} / long >= {ClvLongMin:F2} | EMA ext {EmaBufferAtr:F1}*ATR | SMA200 {(Require200SmaFilter ? "ON" : "OFF")} | Next-bar confirmation {(RequireReversalConfirmation ? "ON" : "OFF")}. No SL/PT computed (alert-only).");
+            Print($"[ReversalScanner] Indicators: EMA({EmaPeriod}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}). (No RSI — TSI divergence on the trigger bar; signal line display only.)");
+            Print($"[ReversalScanner] Thresholds: CLV short <= {ClvShortMax:F2} / long >= {ClvLongMin:F2} | Divergence: lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {TsiExtremeLevel:F1}, min drop {MinTsiDivergenceDrop:F2}, trigger window {TriggerWindow} bars | SMA200 {(Require200SmaFilter ? "ON" : "OFF")} | Next-bar confirmation {(RequireReversalConfirmation ? "ON" : "OFF")}. No SL/PT computed (alert-only).");
             Print($"[ReversalScanner] Benchmark: {(RequireBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only scanner (no trade execution). Entry = next open.");
             Print($"[ReversalScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ReversalScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
@@ -504,7 +521,7 @@ namespace cAlgo
                 return (false, false);
             }
 
-            int required = Math.Max(MinBarsToScan, Math.Max(Sma200Period, EmaPeriod + PpoSlowPeriod + PpoSignalPeriod) + 20);
+            int required = Math.Max(MinBarsToScan, Math.Max(Sma200Period, EmaPeriod + TsiLongPeriod + TsiShortPeriod + TsiSignalPeriod + DivergenceLookback) + 20);
             var bars = EnsureBarsLoaded(TimeFrame.Daily, symbolName, required);
             if (bars == null)
             {
@@ -521,7 +538,7 @@ namespace cAlgo
             // session boundary, but it can never re-enable scanning of a live bar.
             int targetIdx = GetLastCompletedDailyBarIndex(bars, symbolName);
 
-            if (targetIdx < 0 || targetIdx < Math.Max(Sma200Period, EmaPeriod + PpoSlowPeriod + PpoSignalPeriod))
+            if (targetIdx < 0 || targetIdx < Math.Max(Sma200Period, Math.Max(EmaPeriod + TsiLongPeriod + TsiShortPeriod + TsiSignalPeriod, DivergenceLookback + DivergenceMinGap)))
             {
                 RecordSkip(symbolName, $"No completed daily bar with sufficient warmup (target index {targetIdx})");
                 return (false, false);
@@ -552,7 +569,7 @@ namespace cAlgo
                     Ema21 = ReversalEngine.ComputeEma(newCloses, EmaPeriod),
                     Sma200 = ReversalEngine.ComputeSma(newCloses, Sma200Period),
                     Atr = ReversalEngine.ComputeAtr(newHighs, newLows, newCloses, AtrPeriod),
-                    Ppo = ReversalEngine.ComputePpo(newCloses, PpoFastPeriod, PpoSlowPeriod, PpoSignalPeriod)
+                    Tsi = ReversalEngine.ComputeTsi(newCloses, TsiLongPeriod, TsiShortPeriod, TsiSignalPeriod)
                 };
                 _indicatorCache[symbolName] = snapshot;
             }
@@ -563,7 +580,7 @@ namespace cAlgo
             double[] ema21 = snapshot.Ema21;
             double[] sma200 = snapshot.Sma200;
             double[] atr = snapshot.Atr;
-            var ppo = snapshot.Ppo;
+            var tsi = snapshot.Tsi;
 
             // Allow scanning back a few bars so freshly-triggered setups are not missed.
             bool alertFired = false;
@@ -575,9 +592,10 @@ namespace cAlgo
 
             int evalIdx = targetIdx;
             {
-                var res = ReversalEngine.Evaluate(closes, highs, lows, ppo.Ppo, ppo.PpoSig,
+                var res = ReversalEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig,
                     ema21, sma200, atr, evalIdx, AllowedDirection,
-                    ClvShortMax, ClvLongMin, EmaBufferAtr,
+                    DivergenceLookback, DivergenceMinGap, TsiExtremeLevel, MinTsiDivergenceDrop, TriggerWindow,
+                    ClvShortMax, ClvLongMin,
                     Require200SmaFilter, RequireReversalConfirmation,
                     spyLongForSymbol, spyShortForSymbol);
 
@@ -588,7 +606,7 @@ namespace cAlgo
                 else
                 {
                     var armed = BuildArmedSetup(symbolName, res, bars, evalIdx);
-                    if (IsSetupStillValid(armed, symbolName, ppo.Ppo, ppo.PpoSig, closes, atr, targetIdx))
+                    if (IsSetupStillValid(armed, symbolName, tsi.Tsi, closes, atr, targetIdx))
                         bestSetup = armed;
                 }
             }
@@ -624,7 +642,7 @@ namespace cAlgo
         }
 
         private bool IsSetupStillValid(ArmedReversalSetup setup, string symbolName,
-            double[] ppo, double[] ppoSig, double[] closes, double[] atr, int targetIdx)
+            double[] tsi, double[] closes, double[] atr, int targetIdx)
         {
             if (setup.Direction == ReversalDirection.Long &&
                 RequireVixFilter && IsUsEquitySymbol(symbolName) && !_vixLongOk)
@@ -647,21 +665,20 @@ namespace cAlgo
                 }
             }
 
-            double livePpo = ppo[targetIdx];
-            double livePpoSig = ppoSig[targetIdx];
-            if (double.IsNaN(livePpo) || double.IsNaN(livePpoSig))
+            double liveTsi = tsi[targetIdx];
+            if (double.IsNaN(liveTsi))
             {
-                RecordReject("Live PPO NaN on last closed bar — cannot confirm momentum intact");
+                RecordReject("Live TSI NaN on last closed bar — cannot confirm the divergence");
                 return false;
             }
-            if (setup.Direction == ReversalDirection.Long && !(livePpo > livePpoSig))
+            if (setup.Direction == ReversalDirection.Short && !(liveTsi <= setup.RefTsi - MinTsiDivergenceDrop))
             {
-                RecordReject($"Live PPO {livePpo:F2} not > PPOsig {livePpoSig:F2} — momentum no longer intact for long");
+                RecordReject($"Live TSI {liveTsi:F2} back above reference {setup.RefTsi:F2} - {MinTsiDivergenceDrop:F2} — divergence no longer intact for short");
                 return false;
             }
-            if (setup.Direction == ReversalDirection.Short && !(livePpo < livePpoSig))
+            if (setup.Direction == ReversalDirection.Long && !(liveTsi >= setup.RefTsi + MinTsiDivergenceDrop))
             {
-                RecordReject($"Live PPO {livePpo:F2} not < PPOsig {livePpoSig:F2} — momentum no longer intact for short");
+                RecordReject($"Live TSI {liveTsi:F2} back below reference {setup.RefTsi:F2} + {MinTsiDivergenceDrop:F2} — divergence no longer intact for long");
                 return false;
             }
 
@@ -685,9 +702,10 @@ namespace cAlgo
                 SignalBarTime = bars.OpenTimes[triggerIdx],
                 Close = res.Close,
                 Clv = res.Clv,
-                Ppo = res.Ppo,
-                PpoSig = res.PpoSig,
-                Ema21 = res.Ema50,
+                Tsi = res.Tsi,
+                TsiSig = res.TsiSig,
+                RefTsi = res.RefTsi,
+                Ema21 = res.Ema21,
                 Atr = res.Atr,
                 DistanceAtr = res.DistanceAtr,
                 LivePrice = livePrice,
@@ -706,13 +724,13 @@ namespace cAlgo
 
             var sb = new StringBuilder();
             sb.AppendLine($"{dir} REVERSAL SETUP — {symbolName} [{dateTag}]");
-            sb.AppendLine($"  Trigger bar #{s.TriggerIndex} | Confirmation: next closed bar");
-            sb.AppendLine($"  Close: {s.Close:F4} | CLV: {s.Clv:F2} | PPO: {s.Ppo:F2} vs sig {s.PpoSig:F2}");
+            sb.AppendLine($"  Trigger bar #{s.TriggerIndex} | Reference bar #{s.ExtremeIndex} | Confirmation: {(RequireReversalConfirmation ? "next closed bar" : "OFF")}");
+            sb.AppendLine($"  Close: {s.Close:F4} | CLV: {s.Clv:F2} | TSI: {s.Tsi:F2} vs ref {s.RefTsi:F2} (div {s.RefTsi - s.Tsi:F2}) | sig {s.TsiSig:F2}");
             sb.AppendLine($"  EMA21: {s.Ema21:F4} | ATR: {s.Atr:F4} | Live: {s.LivePrice:F4}");
             sb.AppendLine($"  ENTRY: next open (scanner reports the setup only; no SL/PT computed)");
             string detail = sb.ToString();
 
-            string shortMsg = $"[{now:HH:mm}] {symbolName} {dir} REVERSAL | Lvl {s.Level:F2} CLV {s.Clv:F2} PPO {s.Ppo:F2}/{s.PpoSig:F2} Dist {s.DistanceAtr:F2} ATR";
+            string shortMsg = $"[{now:HH:mm}] {symbolName} {dir} REVERSAL | Lvl {s.Level:F2} CLV {s.Clv:F2} TSI {s.Tsi:F2}/ref {s.RefTsi:F2} Dist {s.DistanceAtr:F2} ATR";
             _recentAlertMessages.Insert(0, shortMsg);
             if (_recentAlertMessages.Count > 6) _recentAlertMessages.RemoveAt(_recentAlertMessages.Count - 1);
 
@@ -1126,8 +1144,8 @@ namespace cAlgo
             var sb = new StringBuilder();
             sb.AppendLine("=== REVERSAL SCANNER (Daily, EOD signals, entry next open) ===");
             sb.AppendLine($"Watchlist: {WatchlistName} ({totalCount} symbols) | Trigger: {ScheduleMode} | Direction: {AllowedDirection}");
-            sb.AppendLine($"EMA({EmaPeriod}) | ATR({AtrPeriod}) | PPO({PpoFastPeriod},{PpoSlowPeriod},{PpoSignalPeriod}) | No lookback | No RSI");
-            sb.AppendLine($"Thresholds: CLV S<={ClvShortMax:F2} L>={ClvLongMin:F2} | EMA ext {EmaBufferAtr:F1}*ATR | No SL/PT");
+            sb.AppendLine($"EMA({EmaPeriod}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Divergence L{DivergenceLookback}/G{DivergenceMinGap} > {TsiExtremeLevel:F1} drop {MinTsiDivergenceDrop:F2} | Trigger window {TriggerWindow} bars | No RSI");
+            sb.AppendLine($"Thresholds: CLV S<={ClvShortMax:F2} L>={ClvLongMin:F2} | Confirmation {(RequireReversalConfirmation ? "ON" : "OFF")} | No SL/PT");
             sb.AppendLine($"Benchmark: {spyStatus} | {_spyDetail}");
             sb.AppendLine($"VIX: {vixStatus} | {_vixDetail}");
             sb.AppendLine($"Crypto: {btcStatus} | {_btcDetail}");
@@ -1148,7 +1166,7 @@ namespace cAlgo
                     double atrPnl = item.Atr > 0 ? (diff / item.Atr) : 0.0;
                     string pnlSign = atrPnl >= 0 ? "+" : "";
                     string dateTag = item.SignalBarTime != DateTime.MinValue ? item.SignalBarTime.ToString("yyyy-MM-dd") : "?";
-                    sb.AppendLine($"[{dir}] {item.Symbol,-8} | {dateTag} | Live: {item.LivePrice:F4} ({pnlSign}{atrPnl:F2} ATR) | CLV: {item.Clv:F2} | PPO: {item.Ppo:F2}/{item.PpoSig:F2} | Level: {item.Level:F4} | EMA21: {item.Ema21:F4} | Dist: {item.DistanceAtr:F2} ATR");
+                    sb.AppendLine($"[{dir}] {item.Symbol,-8} | {dateTag} | Live: {item.LivePrice:F4} ({pnlSign}{atrPnl:F2} ATR) | CLV: {item.Clv:F2} | TSI: {item.Tsi:F2}/ref {item.RefTsi:F2} | Level: {item.Level:F4} | EMA21: {item.Ema21:F4} | Dist: {item.DistanceAtr:F2} ATR");
                 }
             }
             else
