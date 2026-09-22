@@ -9,17 +9,17 @@ Alert-only cTrader Automate (cAlgo) scanners for daily bars. Both scanners evalu
 | `ReversalScanner/` | `ReversalScanner` cBot | Fade extended moves that roll over (blow-off / capitulation) |
 | `ContinuationScanner/` | `ContinuationScanner` cBot | Trade trend resumptions after a pullback to EMA21 |
 | `TradeManager/` | `TradeManager` cBot | Daily account-wide pending-order cancellation and TSI-based position exits |
-| `TrueStrengthIndex/` | `TrueStrengthIndex` indicator | Blau TSI oscillator (13/7/7) with optional signal line and zero-line regime | 
+| `TrueStrengthIndex/` | `TrueStrengthIndex` indicator | Blau TSI oscillator (25/13/13) with optional signal line and zero-line regime | 
 | `SupportResistance/` | `SupportResistance` indicator | Support/resistance levels (separate, unchanged) |
 | `PpoReversalScanner/` | reference only | Legacy PPO-cross scanner. Does **not** build in this repo (links to projects that are not present). Kept as a reference; do not use |
 
 Each scanner has a pure C# engine (`ReversalEngine.cs` / `ContinuationEngine.cs`) with no cAlgo dependencies, so the signal logic is unit-testable and deterministic. `ContinuationScanner.csproj` links `ReversalEngine.cs` from the ReversalScanner folder for shared indicator math, scheduling, and enum types.
 
-`TradeManager` is separate from both scanners. It checks once per daily close, applies the SPY/VIX macro gate only to US-equity pending orders, applies the BTC/SMA crypto macro gate only to configured crypto pending orders, cancels unfilled orders on a symbol-specific TSI 13/7/7 zero-line cross (against the order direction) or already-reached order TP, and closes positions only on the same TSI zero-line cross against the position direction. It never modifies orders or position SL/TP. TSI exits wait for spread <= 0.05 ATR or force a market close after the configured delay.
+`TradeManager` is separate from both scanners. It checks once per daily close, applies the SPY/VIX macro gate only to US-equity pending orders, applies the BTC/SMA crypto macro gate only to configured crypto pending orders, cancels unfilled orders on a symbol-specific TSI 25/13/13 zero-line cross (against the order direction) or already-reached order TP, and closes positions only on the same TSI zero-line cross against the position direction. It never modifies orders or position SL/TP. TSI exits wait for spread <= 0.05 ATR or force a market close after the configured delay.
 
 ## Signal logic (both scanners, daily EOD bars)
 
-Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter, ATR(14) Wilder, CLV** plus momentum: **TSI(13,7,7) — zero-line regime for continuations, divergence trigger for reversals**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
+Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter, ATR(14) Wilder, CLV** plus momentum: **TSI(25,13,13) — zero-line regime for continuations, divergence trigger for reversals**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
 
 ### Reversal (ReversalScanner)
 

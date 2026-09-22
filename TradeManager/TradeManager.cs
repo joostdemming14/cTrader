@@ -51,14 +51,14 @@ namespace cAlgo
         [Parameter("Spread Max (x ATR)", Group = "Position Exit", DefaultValue = 0.05, MinValue = 0.001, MaxValue = 0.5, Step = 0.001)]
         public double MaxSpreadAtr { get; set; } = 0.05;
 
-        [Parameter("TSI Long (EMA)", Group = "TSI", DefaultValue = 13, MinValue = 2)]
-        public int TsiLongPeriod { get; set; } = 13;
+        [Parameter("TSI Long (EMA)", Group = "TSI", DefaultValue = 25, MinValue = 2)]
+        public int TsiLongPeriod { get; set; } = 25;
 
-        [Parameter("TSI Short (EMA)", Group = "TSI", DefaultValue = 7, MinValue = 2)]
-        public int TsiShortPeriod { get; set; } = 7;
+        [Parameter("TSI Short (EMA)", Group = "TSI", DefaultValue = 13, MinValue = 2)]
+        public int TsiShortPeriod { get; set; } = 13;
 
-        [Parameter("TSI Signal (EMA)", Group = "TSI", DefaultValue = 7, MinValue = 1)]
-        public int TsiSignalPeriod { get; set; } = 7;
+        [Parameter("TSI Signal (EMA)", Group = "TSI", DefaultValue = 13, MinValue = 1)]
+        public int TsiSignalPeriod { get; set; } = 13;
 
         [Parameter("ATR Period", Group = "TSI", DefaultValue = 14, MinValue = 1)]
         public int AtrPeriod { get; set; } = 14;
