@@ -73,14 +73,14 @@ namespace cAlgo
         [Parameter("ATR Period", Group = "2. Indicators", DefaultValue = 14, MinValue = 1)]
         public int AtrPeriod { get; set; } = 14;
 
-        [Parameter("TSI Long EMA", Group = "2. Indicators", DefaultValue = 25, MinValue = 1)]
-        public int TsiLongPeriod { get; set; } = 25;
+        [Parameter("TSI Long EMA", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
+        public int TsiLongPeriod { get; set; } = 13;
 
-        [Parameter("TSI Short EMA", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
-        public int TsiShortPeriod { get; set; } = 13;
+        [Parameter("TSI Short EMA", Group = "2. Indicators", DefaultValue = 7, MinValue = 1)]
+        public int TsiShortPeriod { get; set; } = 7;
 
-        [Parameter("TSI Signal (EMA)", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
-        public int TsiSignalPeriod { get; set; } = 13;
+        [Parameter("TSI Signal (EMA)", Group = "2. Indicators", DefaultValue = 7, MinValue = 1)]
+        public int TsiSignalPeriod { get; set; } = 7;
 
         // =========================================================================
         // --- 3. Continuation Thresholds ---

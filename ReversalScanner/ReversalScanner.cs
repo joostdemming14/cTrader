@@ -72,14 +72,14 @@ namespace cAlgo
         [Parameter("ATR Period", Group = "2. Indicators", DefaultValue = 14, MinValue = 1)]
         public int AtrPeriod { get; set; } = 14;
 
-        [Parameter("TSI Long EMA", Group = "2. Indicators", DefaultValue = 25, MinValue = 1)]
-        public int TsiLongPeriod { get; set; } = 25;
+        [Parameter("TSI Long EMA", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
+        public int TsiLongPeriod { get; set; } = 13;
 
-        [Parameter("TSI Short EMA", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
-        public int TsiShortPeriod { get; set; } = 13;
+        [Parameter("TSI Short EMA", Group = "2. Indicators", DefaultValue = 7, MinValue = 1)]
+        public int TsiShortPeriod { get; set; } = 7;
 
-        [Parameter("TSI Signal (EMA)", Group = "2. Indicators", DefaultValue = 13, MinValue = 1)]
-        public int TsiSignalPeriod { get; set; } = 13;
+        [Parameter("TSI Signal (EMA)", Group = "2. Indicators", DefaultValue = 7, MinValue = 1)]
+        public int TsiSignalPeriod { get; set; } = 7;
 
         // =========================================================================
         // --- 3. Reversal Thresholds ---
@@ -93,8 +93,8 @@ namespace cAlgo
         [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 20, MinValue = 5)]
         public int DivergenceLookback { get; set; } = 20;
 
-        [Parameter("Divergence Min Gap (bars)", Group = "3. Reversal Thresholds", DefaultValue = 5, MinValue = 1)]
-        public int DivergenceMinGap { get; set; } = 5;
+        [Parameter("Divergence Min Gap (bars)", Group = "3. Reversal Thresholds", DefaultValue = 3, MinValue = 1)]
+        public int DivergenceMinGap { get; set; } = 3;
 
         [Parameter("TSI Extreme Level (abs)", Group = "3. Reversal Thresholds", DefaultValue = 10.0, MinValue = 0.0, MaxValue = 100.0, Step = 1.0)]
         public double TsiExtremeLevel { get; set; } = 10.0;

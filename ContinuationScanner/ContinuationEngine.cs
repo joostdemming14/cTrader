@@ -85,7 +85,7 @@ namespace cAlgo
     /// Reuses <see cref="ReversalEngine"/> for indicator math (EMA/SMA/ATR/TSI/CLV) and scheduling.
     ///
     /// Final continuation logic:
-    ///   EMA21 pullback, EMA50 trend alignment, SMA200, ATR(14), TSI(25,13,13), CLV
+    ///   EMA21 pullback, EMA50 trend alignment, SMA200, ATR(14), TSI(13,7,7), CLV
     ///   plus the SMA200 long-term trend filter (continuations only).
     ///
     /// Long Continuation trigger on bar t:

@@ -8,7 +8,7 @@ namespace cAlgo
     /// True Strength Index (William Blau) oscillator pane. Standard formula:
     ///   TSI    = 100 * EMA(short, EMA(long, Close - Close[1])) / EMA(short, EMA(long, |Close - Close[1]|))
     ///   Signal = EMA(signalPeriod, TSI)
-    /// Defaults 25/13/13. The zero line marks the momentum regime used by the scanners
+    /// Defaults 13/7/7. The zero line marks the momentum regime used by the scanners
     /// (TSI &gt; 0 = bullish regime, TSI &lt; 0 = bearish regime); the Continuation scanner
     /// uses exactly that gate. The signal line is optional and display-only. Values are
     /// bounded to (-100, +100); warmup bars are NaN (not drawn). AccessRights = None.
@@ -16,14 +16,14 @@ namespace cAlgo
     [Indicator(IsOverlay = false, TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
     public class TrueStrengthIndex : Indicator
     {
-        [Parameter("TSI Long EMA", Group = "TSI", DefaultValue = 25, MinValue = 1)]
-        public int TsiLongPeriod { get; set; } = 25;
+        [Parameter("TSI Long EMA", Group = "TSI", DefaultValue = 13, MinValue = 1)]
+        public int TsiLongPeriod { get; set; } = 13;
 
-        [Parameter("TSI Short EMA", Group = "TSI", DefaultValue = 13, MinValue = 1)]
-        public int TsiShortPeriod { get; set; } = 13;
+        [Parameter("TSI Short EMA", Group = "TSI", DefaultValue = 7, MinValue = 1)]
+        public int TsiShortPeriod { get; set; } = 7;
 
-        [Parameter("TSI Signal (EMA)", Group = "TSI", DefaultValue = 13, MinValue = 1)]
-        public int TsiSignalPeriod { get; set; } = 13;
+        [Parameter("TSI Signal (EMA)", Group = "TSI", DefaultValue = 7, MinValue = 1)]
+        public int TsiSignalPeriod { get; set; } = 7;
 
         [Parameter("Show Signal Line", Group = "TSI", DefaultValue = true)]
         public bool ShowSignalLine { get; set; } = true;
