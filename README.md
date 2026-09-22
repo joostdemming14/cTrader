@@ -26,7 +26,7 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 
 | | Long Reversal | Short Reversal |
 |---|---|---|
-| Divergence (step 1) | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI < -10, TSI >= reference TSI + 0.1, no lower Low since | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI > +10, TSI <= reference TSI - 0.1, no higher High since |
+| Divergence (step 1) | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI < -10, TSI >= reference TSI + `Min TSI Divergence Gap` (0.1), no lower Low since | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI > +10, TSI <= reference TSI - `Min TSI Divergence Gap` (0.1), no higher High since |
 | Trigger (step 2) | CLV >= +0.35 (strong close) | CLV <= -0.35 (weak close) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Confirmation (optional, default off) | Next close > signal-bar High | Next close < signal-bar Low |
