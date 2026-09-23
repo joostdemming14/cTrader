@@ -22,11 +22,11 @@ Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend fi
 
 ### Reversal (ReversalScanner)
 
-Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a bar in the last `TriggerWindow` bars made a fresh lookback extreme whose TSI diverged from the reference extreme. Newer, more extreme prints do NOT kill the setup: the divergence re-anchors to the newest extreme as long as the TSI keeps stepping in the divergent direction vs the previous extreme (divergence chain — price higher + TSI lower for shorts, mirrored for longs, including against the original strong reference when intermediate extremes are too weak to anchor). The setup only dies when momentum recovers at a newer extreme. Step 2 — the trigger: the signal bar's close location. The divergence bar and trigger bar may be the same bar. The optional next-bar confirmation (default OFF) must close beyond the signal bar high/low.
+Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a bar in the last `TriggerWindow` (5) bars made a fresh lookback extreme whose TSI diverged from the reference extreme. Newer, more extreme prints do NOT kill the setup: the divergence re-anchors to the newest extreme as long as the TSI keeps stepping in the divergent direction vs the previous extreme (divergence chain — price higher + TSI lower for shorts, mirrored for longs, including against the original strong reference when intermediate extremes are too weak to anchor). The setup only dies when momentum recovers at a newer extreme. Step 2 — the trigger: the signal bar's close location. The divergence bar and trigger bar may be the same bar. The optional next-bar confirmation (default OFF) must close beyond the signal bar high/low.
 
 | | Long Reversal | Short Reversal |
 |---|---|---|
-| Divergence (step 1) | Low < lowest Low of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI < -10, TSI >= reference TSI + `Min TSI Divergence Gap` (0.1), no lower Low since | High > highest High of the prior `DivergenceLookback` bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI > +10, TSI <= reference TSI - `Min TSI Divergence Gap` (0.1), no higher High since |
+| Divergence (step 1) | Low < lowest Low of the prior `DivergenceLookback` (30) bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI < -10, TSI >= reference TSI + `Min TSI Divergence Gap` (0.1), no lower Low since | High > highest High of the prior `DivergenceLookback` (30) bars (reference >= `DivergenceMinGap` (3) bars back), reference TSI > +10, TSI <= reference TSI - `Min TSI Divergence Gap` (0.1), no higher High since |
 | Trigger (step 2) | CLV >= +0.35 (strong close) | CLV <= -0.35 (weak close) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Confirmation (optional, default off) | Next close > signal-bar High | Next close < signal-bar Low |
@@ -54,6 +54,15 @@ The continuation momentum gate is regime-only: the TSI zero line decides, and th
 | Crypto benchmark (group 4c) | Configured crypto list only | Uses the same `BenchmarkBufferAtr` band: live BTC below BTC SMA50 - buffer blocks longs; above SMA50 + buffer blocks shorts; SMA/ATR use completed BTC daily bars. Default OFF on both scanners: the symbol's own SMA200/EMA/TSI regime carries the setup, so a BTC proxy only blocked alts showing relative strength/weakness independent of BTC | Bypassed |
 
 Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by design. The crypto universe is a comma-separated parameter; spacing is ignored (`BTC EUR` matches `BTCEUR`).
+
+## Relative-strength rank tag (informational, never excludes)
+
+Both scanners tag every alert with the symbol's relative-strength rank inside its asset bucket (US equities / crypto / other). It is priority information only — a setup is never blocked or suppressed by it, so a long reversal on a leading symbol or a laggard continuation still alerts exactly as before.
+
+- **Score**: risk-adjusted trend score over the last `RS Score Period` (50) completed bars: total return divided by the standard deviation of the daily returns scaled by sqrt(period) — a t-statistic of the trend. A steady grind outranks a single melt-up bar followed by noise, and low-volatility symbols are not penalised against high-volatility ones. Computed on the same completed bar as the trigger (no repaint); NaN (too few bars, zero spread) skips the symbol from the ranking and shows `RS: n/a`.
+- **Ranking**: once per scan pass, per asset bucket, computed over the full watchlist (both scanners rank within their own bucket only — cross-asset returns are incomparable). Ties share a rank (competition ranking: 1, 2, 2, 4).
+- **Tag**: `RS: #rank/bucketSize (pct)` — e.g. `RS: #12/780 (99 pct)`. Below `Min Bucket Size For RS Percentile` (8) symbols the percentile is dropped (`#3/18`) because a percentile of a handful of symbols is noise. `Show RS Rank In Alerts` (default on) turns the tag off entirely.
+- **Timing**: alerts are dispatched when the pass completes, not mid-universe, so the rank always reflects the full watchlist — on an 800-symbol watchlist the first-scanned symbols would otherwise be ranked against a half-empty bucket. A cBot stopped mid-pass still flushes its pending alerts in `OnStop`.
 
 ## Pass-level re-verification
 

@@ -90,8 +90,8 @@ namespace cAlgo
         [Parameter("CLV Long Min (>=)", Group = "3. Reversal Thresholds", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
         public double ClvLongMin { get; set; } = 0.35;
 
-        [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 20, MinValue = 5)]
-        public int DivergenceLookback { get; set; } = 20;
+        [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 30, MinValue = 5)]
+        public int DivergenceLookback { get; set; } = 30;
 
         [Parameter("Divergence Min Gap (bars)", Group = "3. Reversal Thresholds", DefaultValue = 3, MinValue = 1)]
         public int DivergenceMinGap { get; set; } = 3;
@@ -102,8 +102,8 @@ namespace cAlgo
         [Parameter("Min TSI Divergence Gap", Group = "3. Reversal Thresholds", DefaultValue = 0.1, MinValue = 0.0, MaxValue = 100.0, Step = 0.01)]
         public double MinTsiDivergenceDrop { get; set; } = 0.1;
 
-        [Parameter("Trigger Window After Divergence (bars)", Group = "3. Reversal Thresholds", DefaultValue = 3, MinValue = 0)]
-        public int TriggerWindow { get; set; } = 3;
+        [Parameter("Trigger Window After Divergence (bars)", Group = "3. Reversal Thresholds", DefaultValue = 5, MinValue = 0)]
+        public int TriggerWindow { get; set; } = 5;
 
         [Parameter("Require 200 SMA Trend Filter", Group = "3. Reversal Thresholds", DefaultValue = true)]
         public bool Require200SmaFilter { get; set; } = true;
@@ -165,6 +165,18 @@ namespace cAlgo
 
         [Parameter("Alert Popup", Group = "5. Alerts", DefaultValue = true)]
         public bool AlertPopup { get; set; } = true;
+
+        // =========================================================================
+        // --- 6. Relative Strength Rank (informational alert tag, never excludes) ---
+        // =========================================================================
+        [Parameter("Show RS Rank In Alerts", Group = "6. Relative Strength Rank", DefaultValue = true)]
+        public bool ShowRsRankInAlerts { get; set; } = true;
+
+        [Parameter("RS Score Period (bars)", Group = "6. Relative Strength Rank", DefaultValue = 50, MinValue = 10, MaxValue = 200)]
+        public int RsScorePeriod { get; set; } = 50;
+
+        [Parameter("Min Bucket Size For RS Percentile", Group = "6. Relative Strength Rank", DefaultValue = 8, MinValue = 2, MaxValue = 100)]
+        public int RsMinBucketSize { get; set; } = 8;
 
         // Active setup info tracked between scan passes.
         public class ArmedReversalSetup
@@ -254,6 +266,16 @@ namespace cAlgo
         private string _btcDetail = "Pending first check";
         private readonly HashSet<string> _cryptoSymbols = new(StringComparer.OrdinalIgnoreCase);
 
+        // Relative-strength ranking (recomputed once per scan pass, purely informational).
+        // Scores are collected while the pass scans the watchlist; the ranking is finalized and the
+        // pass's pending alerts are dispatched only when the pass completes, so every alert carries a
+        // rank computed over the full bucket — an 800-symbol watchlist would otherwise label the
+        // first scanned symbols against a half-empty universe.
+        private readonly Dictionary<string, (RsAssetBucket Bucket, double Score)> _passRsScores = new(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, RsRank> _passRsRankings = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<(string Symbol, ArmedReversalSetup Setup)> _passPendingAlerts = new();
+        private int _passRsValidScores;
+
         protected override void OnStart()
         {
             _isStopped = false;
@@ -280,6 +302,7 @@ namespace cAlgo
             Print($"[ReversalScanner] Benchmark: {(RequireBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only scanner (no trade execution). Entry = next open.");
             Print($"[ReversalScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ReversalScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
+            Print($"[ReversalScanner] RS rank tag: {(ShowRsRankInAlerts ? $"ENABLED (score period {RsScorePeriod} bars, percentiles from bucket size {RsMinBucketSize}; alert-only info, never excludes)" : "DISABLED")}.");
 
             DrawHud(0, _watchlistSymbols.Count, 0, "Starting scan pass #1...");
 
@@ -320,6 +343,7 @@ namespace cAlgo
         {
             _isStopped = true;
             Timer.Stop();
+            FlushPendingRsAlerts();
             Chart.RemoveObject(HudTableName);
             if (_scanNowButton != null)
             {
@@ -364,6 +388,36 @@ namespace cAlgo
             }
             Print($"[ReversalScanner] Triggering scan pass immediately ({source}).");
             StartScanPass();
+        }
+
+        private void ResetPassRsState()
+        {
+            _passRsScores.Clear();
+            _passRsRankings = new Dictionary<string, RsRank>(StringComparer.OrdinalIgnoreCase);
+            _passPendingAlerts.Clear();
+            _passRsValidScores = 0;
+        }
+
+        private void FlushPendingRsAlerts()
+        {
+            if (_passPendingAlerts.Count == 0) return;
+            _passRsRankings = ReversalEngine.BuildRsRankings(_passRsScores);
+            Print($"[ReversalScanner] RS ranking: {_passRsValidScores} symbols scored, {_passPendingAlerts.Count} alert(s) tagged.");
+            foreach (var pending in _passPendingAlerts)
+            {
+                string rsTag = _passRsRankings.TryGetValue(pending.Symbol, out var rank)
+                    ? ReversalEngine.FormatRsTag(rank, RsMinBucketSize)
+                    : "n/a";
+                Notify(pending.Symbol, pending.Setup, rsTag);
+            }
+            _passPendingAlerts.Clear();
+        }
+
+        private RsAssetBucket ClassifyRsBucket(string symbolName)
+        {
+            if (IsUsEquitySymbol(symbolName)) return RsAssetBucket.UsEquity;
+            if (IsCryptoSymbol(symbolName)) return RsAssetBucket.Crypto;
+            return RsAssetBucket.Other;
         }
 
         private void LoadWatchlist()
@@ -438,6 +492,7 @@ namespace cAlgo
             _currentPassAlerts = 0;
             _currentPassRejects.Clear();
             _currentPassSkips.Clear();
+            ResetPassRsState();
             _passStopwatch.Restart();
 
             DrawHud(0, _watchlistSymbols.Count, 0, "Scanning in progress...");
@@ -482,6 +537,7 @@ namespace cAlgo
             _passStopwatch.Stop();
             _scanPassCount++;
             _lastScanTime = Server.TimeInUtc;
+            FlushPendingRsAlerts();
             _nextScanTime = ReversalEngine.CalculateNextScanTime(ScheduleMode, ScanIntervalSeconds, _lastScanTime, DailyCloseHourEt);
 
             if (_scanNowButton != null)
@@ -587,6 +643,16 @@ namespace cAlgo
             double[] sma200 = snapshot.Sma200;
             double[] atr = snapshot.Atr;
             var tsi = snapshot.Tsi;
+            // Informational RS score on the same completed bar as the trigger (no repaint, never a gate).
+            if (ShowRsRankInAlerts)
+            {
+                double rsScore = ReversalEngine.ComputeRsScore(closes, targetIdx, RsScorePeriod);
+                if (!double.IsNaN(rsScore))
+                {
+                    _passRsScores[symbolName] = (ClassifyRsBucket(symbolName), rsScore);
+                    _passRsValidScores++;
+                }
+            }
 
             // Max Setup Age = 0: only the last completed daily bar is evaluated, so a fresh
             // trigger must fire on that bar.
@@ -636,7 +702,16 @@ namespace cAlgo
                 if (!alreadyAlerted)
                 {
                     _lastAlertedSignalBar[symbolName] = bestSetup.SignalBarTime;
-                    Notify(symbolName, bestSetup);
+                    if (ShowRsRankInAlerts)
+                    {
+                        // Deferred until the pass completes: the RS rank is only meaningful once every
+                        // watchlist symbol has been scored, and this pass may still be mid-universe.
+                        _passPendingAlerts.Add((symbolName, bestSetup));
+                    }
+                    else
+                    {
+                        Notify(symbolName, bestSetup, "n/a (off)");
+                    }
                     alertFired = true;
                 }
             }
@@ -726,7 +801,7 @@ namespace cAlgo
             };
         }
 
-        private void Notify(string symbolName, ArmedReversalSetup s)
+        private void Notify(string symbolName, ArmedReversalSetup s, string rsTag)
         {
             DateTime now = Server.TimeInUtc;
             _totalAlertsFired++;
@@ -740,10 +815,11 @@ namespace cAlgo
             sb.AppendLine($"  Trigger bar #{s.TriggerIndex} | Reference bar #{s.ExtremeIndex} | Confirmation: {(RequireReversalConfirmation ? "next closed bar" : "OFF")}");
             sb.AppendLine($"  Close: {s.Close:F4} | CLV: {s.Clv:F2} | TSI (signal bar): {s.SignalTsi:F2} vs ref {s.RefTsi:F2} (div {s.RefTsi - s.SignalTsi:F2}) | TSI (divergence bar): {s.Tsi:F2} | sig {s.TsiSig:F2}");
             sb.AppendLine($"  EMA21: {s.Ema21:F4} | ATR: {s.Atr:F4} | Live: {s.LivePrice:F4}");
+            sb.AppendLine($"  RS: {rsTag} vs watchlist (informational; rank within the symbol's asset bucket over {RsScorePeriod} bars)");
             sb.AppendLine($"  ENTRY: next open (scanner reports the setup only; no SL/PT computed)");
             string detail = sb.ToString();
 
-            string shortMsg = $"[{now:HH:mm}] {symbolName} {dir} REVERSAL | Lvl {s.Level:F2} CLV {s.Clv:F2} TSI {s.SignalTsi:F2}/ref {s.RefTsi:F2} Dist {s.DistanceAtr:F2} ATR";
+            string shortMsg = $"[{now:HH:mm}] {symbolName} {dir} REVERSAL | Lvl {s.Level:F2} CLV {s.Clv:F2} TSI {s.SignalTsi:F2}/ref {s.RefTsi:F2} Dist {s.DistanceAtr:F2} ATR | RS {rsTag}";
             _recentAlertMessages.Insert(0, shortMsg);
             if (_recentAlertMessages.Count > 6) _recentAlertMessages.RemoveAt(_recentAlertMessages.Count - 1);
 
