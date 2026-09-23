@@ -905,15 +905,12 @@ namespace cAlgo
         /// <summary>
         /// Formats the rank portion of the RS tag used inside the alert detail: rank plus percentile
         /// inside the asset bucket, or "n/a" when no ranking is available (too few bars, RS off).
-        /// Small buckets (&lt; <paramref name="minBucketSizeForPercentile"/> symbols) show the rank
-        /// only — a percentile of a handful of symbols is noise. Purely informational, never a gate.
+        /// Purely informational, never a gate.
         /// </summary>
-        public static string FormatRsTag(RsRank rank, int minBucketSizeForPercentile)
+        public static string FormatRsTag(RsRank rank)
         {
             if (!rank.IsValid)
                 return "n/a";
-            if (rank.BucketSize < minBucketSizeForPercentile)
-                return $"#{rank.Rank}/{rank.BucketSize}";
             return $"#{rank.Rank}/{rank.BucketSize} ({rank.Percentile:F0} pct)";
         }
 
