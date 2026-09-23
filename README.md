@@ -63,6 +63,7 @@ Both scanners tag every alert with the symbol's relative-strength rank inside it
 - **Ranking**: once per scan pass, per asset bucket, computed over the full watchlist (both scanners rank within their own bucket only — cross-asset returns are incomparable). Ties share a rank (competition ranking: 1, 2, 2, 4).
 - **Tag**: `RS: #rank/bucketSize (pct)` — e.g. `RS: #12/780 (99 pct)`. `Show RS Rank In Alerts` (default on) turns the tag off entirely.
 - **Timing**: alerts are dispatched when the pass completes, not mid-universe, so the rank always reflects the full watchlist — on an 800-symbol watchlist the first-scanned symbols would otherwise be ranked against a half-empty bucket. A cBot stopped mid-pass still flushes its pending alerts in `OnStop`.
+- **Dispatch order**: within a pass, longs fire first with the strongest RS score at the top, then shorts with the weakest RS score at the top — the alert you see first is the highest-priority candidate for that direction. Purely ordering: every pending alert still fires.
 
 ## Pass-level re-verification
 
