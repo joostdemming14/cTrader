@@ -165,8 +165,6 @@ namespace cAlgo
         [Parameter("RS Score Period (bars)", Group = "6. Relative Strength Rank", DefaultValue = 50, MinValue = 10, MaxValue = 200)]
         public int RsScorePeriod { get; set; } = 50;
 
-        [Parameter("Min Bucket Size For RS Percentile", Group = "6. Relative Strength Rank", DefaultValue = 8, MinValue = 2, MaxValue = 100)]
-        public int RsMinBucketSize { get; set; } = 8;
 
         // Active setup info tracked between scan passes.
         public class ArmedContinuationSetup
@@ -292,7 +290,7 @@ namespace cAlgo
             Print($"[ContinuationScanner] Latest closed bar must touch EMA21 and reclaim/break it. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
             Print($"[ContinuationScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ContinuationScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
-            Print($"[ContinuationScanner] RS rank tag: {(ShowRsRankInAlerts ? $"ENABLED (score period {RsScorePeriod} bars, percentiles from bucket size {RsMinBucketSize}; alert-only info, never excludes)" : "DISABLED")}.");
+            Print($"[ContinuationScanner] RS rank tag: {(ShowRsRankInAlerts ? $"ENABLED (score period {RsScorePeriod} bars, alert-only info, never excludes)" : "DISABLED")}.");
 
             DrawHud(0, _watchlistSymbols.Count, 0, "Starting scan pass #1...");
 
@@ -392,14 +390,32 @@ namespace cAlgo
             if (_passPendingAlerts.Count == 0) return;
             _passRsRankings = ReversalEngine.BuildRsRankings(_passRsScores);
             Print($"[ContinuationScanner] RS ranking: {_passRsValidScores} symbols scored, {_passPendingAlerts.Count} alert(s) tagged.");
-            foreach (var pending in _passPendingAlerts)
+            foreach (var pending in OrderPendingAlertsByRs())
             {
                 string rsTag = _passRsRankings.TryGetValue(pending.Symbol, out var rank)
-                    ? ReversalEngine.FormatRsTag(rank, RsMinBucketSize)
+                    ? ReversalEngine.FormatRsTag(rank)
                     : "n/a";
                 Notify(pending.Symbol, pending.Setup, rsTag);
             }
             _passPendingAlerts.Clear();
+        }
+
+        /// <summary>
+        /// Alert dispatch order within a pass (informational prioritisation only — every pending
+        /// alert still fires): longs first, strongest RS rank at the top; then shorts, weakest RS
+        /// rank at the top. Symbols without a rank keep alerting, at the end of their group.
+        /// </summary>
+        private List<(string Symbol, ArmedContinuationSetup Setup)> OrderPendingAlertsByRs()
+        {
+            return _passPendingAlerts
+                .OrderBy(p => p.Setup.Direction == ReversalDirection.Long ? 0 : 1)
+                .ThenBy(p =>
+                {
+                    if (!_passRsRankings.TryGetValue(p.Symbol, out var rank))
+                        return double.PositiveInfinity;
+                    return p.Setup.Direction == ReversalDirection.Long ? -rank.Score : rank.Score;
+                })
+                .ToList();
         }
 
         private RsAssetBucket ClassifyRsBucket(string symbolName)
