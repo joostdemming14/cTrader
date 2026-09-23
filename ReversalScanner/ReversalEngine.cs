@@ -24,6 +24,48 @@ namespace cAlgo
     }
 
     /// <summary>
+    /// Relative-strength ranking bucket. Symbols are ranked against their own asset class only:
+    /// cross-asset returns are incomparable (a FX pair and an equity do not share a return scale).
+    /// </summary>
+    public enum RsAssetBucket
+    {
+        /// <summary>US cash-session equities ('.US' suffix).</summary>
+        UsEquity = 0,
+        /// <summary>Symbols in the configured crypto list.</summary>
+        Crypto = 1,
+        /// <summary>Everything else (FX, metals, commodities, indices without a suffix).</summary>
+        Other = 2
+    }
+
+    /// <summary>
+    /// Relative-strength rank of one symbol inside its asset bucket: 1 = strongest of the bucket.
+    /// The score is informational only and never excludes a symbol from alerting.
+    /// </summary>
+    public readonly struct RsRank
+    {
+        /// <summary>1-based rank inside the bucket (1 = highest score).</summary>
+        public readonly int Rank;
+        /// <summary>Number of symbols with a valid score in the bucket, this symbol included.</summary>
+        public readonly int BucketSize;
+        /// <summary>Share of the bucket scoring at or below this symbol, 0..100 (higher = stronger).</summary>
+        public readonly double Percentile;
+        /// <summary>The symbol's risk-adjusted momentum score the rank is derived from.</summary>
+        public readonly double Score;
+
+        /// <summary>Builds a rank entry.</summary>
+        public RsRank(int rank, int bucketSize, double percentile, double score)
+        {
+            Rank = rank;
+            BucketSize = bucketSize;
+            Percentile = percentile;
+            Score = score;
+        }
+
+        /// <summary>True when the entry carries a usable ranking.</summary>
+        public bool IsValid => BucketSize > 0 && Rank > 0;
+    }
+
+    /// <summary>
     /// Automatic scan scheduling modes for the scanners.
     /// </summary>
     public enum ReversalScheduleMode
@@ -134,7 +176,7 @@ namespace cAlgo
     /// Final trigger logic used by this scanner (TSI divergence, no pivot waiting):
     ///   TSI    = 100 * EMA(short, EMA(long, PC)) / EMA(short, EMA(long, |PC|))   (Blau; defaults 25/13)
     ///   CLV    = (2*Close - High - Low) / (High - Low)   range -1..+1
-    ///   Lookback = divergence window (parameter; default 20)
+    ///   Lookback = divergence window (parameter; default 30)
     ///
     /// Short Reversal = two steps, both derived from trailing windows (deterministic,
     /// full-recalc safe):
@@ -759,6 +801,120 @@ namespace cAlgo
                 }
             }
             return false;
+        }
+
+        // =========================================================================
+        // --- 2c. RELATIVE STRENGTH RANKING (shared with the Continuation scanner) ---
+        // =========================================================================
+
+        /// <summary>
+        /// Risk-adjusted relative-strength score over the last <paramref name="rsPeriod"/> completed
+        /// bars: total return divided by the standard deviation of the per-bar returns scaled by the
+        /// square root of the period (a t-statistic of the trend). A steady grind scores higher than
+        /// a single melt-up bar followed by noise, and low-volatility symbols are not penalised
+        /// against high-volatility ones. Returns <see cref="double.NaN"/> when the window has fewer
+        /// than <paramref name="rsPeriod"/> bars, a non-positive close, or a zero return spread —
+        /// the caller then skips the symbol instead of ranking a meaningless value.
+        /// </summary>
+        public static double ComputeRsScore(IReadOnlyList<double> closes, int evalIndex, int rsPeriod)
+        {
+            if (closes == null || closes.Count == 0 || rsPeriod < 2 || evalIndex < 0 || evalIndex >= closes.Count)
+                return double.NaN;
+            int startIdx = evalIndex - rsPeriod;
+            if (startIdx < 0)
+                return double.NaN;
+            double baseClose = closes[startIdx];
+            double lastClose = closes[evalIndex];
+            if (double.IsNaN(baseClose) || double.IsNaN(lastClose) || baseClose <= 0.0 || lastClose <= 0.0)
+                return double.NaN;
+            double totalReturn = (lastClose - baseClose) / baseClose;
+            double sum = 0.0;
+            double sumSq = 0.0;
+            int bars = 0;
+            for (int i = startIdx + 1; i <= evalIdxSafe(evalIndex, closes.Count - 1); i++)
+            {
+                double prev = closes[i - 1];
+                double cur = closes[i];
+                if (double.IsNaN(prev) || double.IsNaN(cur) || prev <= 0.0)
+                    return double.NaN;
+                double r = (cur - prev) / prev;
+                sum += r;
+                sumSq += r * r;
+                bars++;
+            }
+            if (bars < rsPeriod)
+                return double.NaN;
+            double mean = sum / bars;
+            double variance = sumSq / bars - mean * mean;
+            if (variance < 0.0) variance = 0.0;
+            double sd = Math.Sqrt(variance);
+            double denom = sd * Math.Sqrt(rsPeriod);
+            if (denom <= 0.0)
+                return double.NaN;
+            return totalReturn / denom;
+        }
+
+        private static int evalIdxSafe(int evalIndex, int last)
+        {
+            return evalIndex > last ? last : evalIndex;
+        }
+
+        /// <summary>
+        /// Ranks the scored symbols inside each asset bucket. Ties share a rank (standard
+        /// competition ranking): with scores 3.0, 2.0, 2.0, 1.0 the ranks are 1, 2, 2, 4. Symbols
+        /// without a valid score (NaN) are excluded from the ranking entirely and get no entry.
+        /// The percentile is the share of ranked symbols with a score at or below this symbol's
+        /// (0..100, higher = stronger), so the bucket's weakest symbol always sits at 0 and the
+        /// strongest at 100.
+        /// </summary>
+        public static Dictionary<string, RsRank> BuildRsRankings(IReadOnlyDictionary<string, (RsAssetBucket Bucket, double Score)> scores)
+        {
+            var result = new Dictionary<string, RsRank>(StringComparer.OrdinalIgnoreCase);
+            if (scores == null || scores.Count == 0)
+                return result;
+            var byBucket = new Dictionary<RsAssetBucket, List<KeyValuePair<string, (RsAssetBucket Bucket, double Score)>>>();
+            foreach (var kv in scores)
+            {
+                if (double.IsNaN(kv.Value.Score)) continue;
+                if (!byBucket.TryGetValue(kv.Value.Bucket, out var list))
+                {
+                    list = new List<KeyValuePair<string, (RsAssetBucket, double)>>();
+                    byBucket[kv.Value.Bucket] = list;
+                }
+                list.Add(kv);
+            }
+            foreach (var bucketKv in byBucket)
+            {
+                var members = bucketKv.Value;
+                members.Sort((a, b) => b.Value.Score.CompareTo(a.Value.Score));
+                int size = members.Count;
+                int currentRank = 0;
+                for (int i = 0; i < size; i++)
+                {
+                    if (i == 0 || members[i].Value.Score.CompareTo(members[i - 1].Value.Score) != 0)
+                        currentRank = i + 1;
+                    double percentile = 100.0 * (size - currentRank) / Math.Max(size - 1, 1);
+                    if (size == 1)
+                        percentile = 100.0;
+                    result[members[i].Key] = new RsRank(currentRank, size, percentile, members[i].Value.Score);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Formats the rank portion of the RS tag used inside the alert detail: rank plus percentile
+        /// inside the asset bucket, or "n/a" when no ranking is available (too few bars, RS off).
+        /// Small buckets (&lt; <paramref name="minBucketSizeForPercentile"/> symbols) show the rank
+        /// only — a percentile of a handful of symbols is noise. Purely informational, never a gate.
+        /// </summary>
+        public static string FormatRsTag(RsRank rank, int minBucketSizeForPercentile)
+        {
+            if (!rank.IsValid)
+                return "n/a";
+            if (rank.BucketSize < minBucketSizeForPercentile)
+                return $"#{rank.Rank}/{rank.BucketSize}";
+            return $"#{rank.Rank}/{rank.BucketSize} ({rank.Percentile:F0} pct)";
         }
 
         // =========================================================================
