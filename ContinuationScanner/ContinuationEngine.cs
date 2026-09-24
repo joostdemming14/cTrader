@@ -90,16 +90,23 @@ namespace cAlgo
     ///
     /// Long Continuation trigger on bar t:
     ///   Low <= EMA21 on the trigger bar, then Close > EMA21, EMA21 > EMA50, Close > SMA200,
-    ///   CLV >= +clvMin, TSI > 0 (momentum regime), no price/TSI divergence over divergenceGuardBars
-    ///   (price up while TSI down). SPY gate optional (default off).
+    ///   CLV >= +clvMin, TSI > 0 (momentum regime), TSI >= SMA(tsiMomentumPeriod, TSI) on the trigger
+    ///   bar (momentum flat or rising vs the rolling average), and no active bearish rolling
+    ///   price/TSI divergence (fresh or near-extreme High with weaker TSI). SPY gate optional
+    ///   (default off).
     ///
     /// Short Continuation trigger on bar t:
     ///   High >= EMA21 on the trigger bar, then Close < EMA21, EMA21 < EMA50, Close < SMA200,
-    ///   CLV <= -clvMin, TSI < 0 (momentum regime), no price/TSI divergence over divergenceGuardBars
-    ///   (price down while TSI up). SPY gate optional (default off).
+    ///   CLV <= -clvMin, TSI < 0 (momentum regime), TSI <= SMA(tsiMomentumPeriod, TSI) on the trigger
+    ///   bar (momentum flat or falling vs the rolling average), and no active bullish rolling
+    ///   price/TSI divergence (fresh or near-extreme Low with stronger TSI). SPY gate optional
+    ///   (default off).
     ///
-    /// Momentum is regime-only: the TSI zero line decides, the TSI signal line is not part of the
-    /// continuation trigger (it is computed for display only). The scanner does not compute SL/PT (alert-only).
+    /// Momentum regime plus rolling-average gate: the TSI zero line decides the regime, the
+    /// TSI-vs-its-own-average gate decides the direction of travel (flat counts as aligned), and
+    /// the divergence suppression shares the exact rolling rule with the ReversalScanner (short
+    /// 3-to-lookback-bar divergences included). The TSI signal line is not part of the continuation
+    /// trigger (it is computed for display only). The scanner does not compute SL/PT (alert-only).
     /// </summary>
     public static class ContinuationEngine
     {
@@ -109,14 +116,16 @@ namespace cAlgo
         /// </summary>
         public static ContinuationSetupResult EvaluateLongContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
-            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
+            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
             IReadOnlyList<double> ema21, IReadOnlyList<double> ema50, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
             double clvMin,
-            int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, int divergenceTriggerWindow,
+            int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
+            int tsiMomentumPeriod,
             bool spyLongOk)
         {
-            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr, evalIndex))
+            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr, evalIndex) ||
+                (tsiMomentumPeriod > 1 && (tsiAvg == null || tsiAvg.Count != closes.Count)))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long, "Null or out-of-range input");
 
             int t = evalIndex;
@@ -151,7 +160,10 @@ namespace cAlgo
             if (!(tsiT > 0.0))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"TSI {tsiT:F2} not > 0 (momentum regime)");
-            if (ReversalEngine.HasActiveBearishTsiDivergence(highs, tsi, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceTriggerWindow))
+            if (tsiMomentumPeriod > 1 && !ReversalEngine.PassesLongMomentumGate(tsi, tsiAvg, t, tsiMomentumPeriod))
+                return ContinuationSetupResult.Reject(ReversalDirection.Long,
+                    $"TSI {tsiT:F2} not >= {tsiAvg[t]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/rising)");
+            if (ReversalEngine.HasActiveBearishTsiDivergence(highs, tsi, atr, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"Active bearish price/TSI divergence (fresh high with lower TSI) over the last {divergenceTriggerWindow} bars");
             if (!spyLongOk)
@@ -170,14 +182,16 @@ namespace cAlgo
         /// </summary>
         public static ContinuationSetupResult EvaluateShortContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
-            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
+            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
             IReadOnlyList<double> ema21, IReadOnlyList<double> ema50, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
             double clvMin,
-            int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, int divergenceTriggerWindow,
+            int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
+            int tsiMomentumPeriod,
             bool spyShortOk)
         {
-            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr, evalIndex))
+            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr, evalIndex) ||
+                (tsiMomentumPeriod > 1 && (tsiAvg == null || tsiAvg.Count != closes.Count)))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short, "Null or out-of-range input");
 
             int t = evalIndex;
@@ -212,7 +226,10 @@ namespace cAlgo
             if (!(tsiT < 0.0))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"TSI {tsiT:F2} not < 0 (momentum regime)");
-            if (ReversalEngine.HasActiveBullishTsiDivergence(lows, tsi, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceTriggerWindow))
+            if (tsiMomentumPeriod > 1 && !ReversalEngine.PassesShortMomentumGate(tsi, tsiAvg, t, tsiMomentumPeriod))
+                return ContinuationSetupResult.Reject(ReversalDirection.Short,
+                    $"TSI {tsiT:F2} not <= {tsiAvg[t]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/falling)");
+            if (ReversalEngine.HasActiveBullishTsiDivergence(lows, tsi, atr, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"Active bullish price/TSI divergence (fresh low with higher TSI) over the last {divergenceTriggerWindow} bars");
             if (!spyShortOk)
@@ -233,21 +250,23 @@ namespace cAlgo
         /// </summary>
         public static ContinuationSetupResult Evaluate(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
-            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
+            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
             IReadOnlyList<double> ema21, IReadOnlyList<double> ema50, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
             ReversalScanDirection direction,
             double clvMin,
-            int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, int divergenceTriggerWindow,
+            int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
+            int tsiMomentumPeriod,
             bool spyLongOk, bool spyShortOk)
         {
             ContinuationSetupResult res = ContinuationSetupResult.Reject(ReversalDirection.None, "Not evaluated");
 
             if (direction != ReversalScanDirection.ShortOnly)
             {
-                var lon = EvaluateLongContinuation(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr,
+                var lon = EvaluateLongContinuation(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, ema50, sma200, atr,
                     evalIndex, clvMin,
-                    divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceTriggerWindow,
+                    divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow,
+                    tsiMomentumPeriod,
                     spyLongOk);
                 if (lon.IsTriggered) return lon;
                 if (direction == ReversalScanDirection.LongOnly) return lon;
@@ -256,9 +275,10 @@ namespace cAlgo
 
             if (direction != ReversalScanDirection.LongOnly)
             {
-                var sh = EvaluateShortContinuation(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr,
+                var sh = EvaluateShortContinuation(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, ema50, sma200, atr,
                     evalIndex, clvMin,
-                    divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceTriggerWindow,
+                    divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow,
+                    tsiMomentumPeriod,
                     spyShortOk);
                 if (sh.IsTriggered) return sh;
                 res = sh;
