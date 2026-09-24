@@ -176,12 +176,14 @@ namespace cAlgo
     /// Final trigger logic used by this scanner (TSI divergence, no pivot waiting):
     ///   TSI    = 100 * EMA(short, EMA(long, PC)) / EMA(short, EMA(long, |PC|))   (Blau; defaults 25/13)
     ///   CLV    = (2*Close - High - Low) / (High - Low)   range -1..+1
-    ///   Lookback = divergence window (parameter; default 30)
+    ///   Lookback = divergence window (parameter; default 90, rolling: the structural window
+    ///   spans minGap..lookback bars — short divergences and structural ones share one rule)
     ///
     /// Short Reversal = two steps, both derived from trailing windows (deterministic,
     /// full-recalc safe):
     ///   1. DIVERGENCE DETECTION: some bar d in the last `triggerWindow` bars (including the
-    ///      signal bar) made the highest High of its full lookback window, with
+    ///      signal bar) printed a High at or above the highest High of its rolling lookback
+    ///      window (fresh extreme) or within `nearExtremeAtr` ATR of it (near-extreme), with
     ///      TSI[d] <= TSI[reference] - minTsiDrop. The reference is the highest High of the prior
     ///      window, at least minGap bars back, whose TSI exceeds +tsiLevel (a genuinely strong
     ///      prior move); intermediate divergence highs with weaker TSI are skipped, so a chain
@@ -189,14 +191,17 @@ namespace cAlgo
     ///      the setup survives newer, more extreme prints as long as the TSI keeps stepping
     ///      down vs the previous extreme. It only dies when momentum recovers at a newer
     ///      extreme (a higher High with a higher TSI).
-    ///   2. TRIGGER: the signal bar closes weakly (CLV <= clvShortMax). The divergence bar and
-    ///      the trigger bar may be the same bar. Trend filter and gates still apply.
+    ///   2. TRIGGER: the signal bar closes weakly (CLV <= clvShortMax) and its TSI sits at or
+    ///      below the rolling TSI average (momentum flat or falling; `tsiMomentumPeriod`).
+    ///      The divergence bar and the trigger bar may be the same bar. Trend filter and gates
+    ///      still apply.
     ///
-    /// Long Reversal is the mirror: lowest Low of the full lookback window with
-    /// TSI[d] >= TSI[reference] + minTsiDrop and reference TSI < -tsiLevel, then a strong
-    /// close (CLV >= clvLongMin). Newer, deeper lows re-anchor the divergence chain to the
-    /// newest extreme while the TSI keeps stepping up vs the previous extreme; the setup only
-    /// dies when momentum deteriorates at a newer extreme.
+    /// Long Reversal is the mirror: fresh or near-extreme (higher low within `nearExtremeAtr`
+    /// ATR) rolling-window Low with TSI[d] >= TSI[reference] + minTsiDrop and reference
+    /// TSI < -tsiLevel, then a strong close (CLV >= clvLongMin) with TSI at or above its
+    /// rolling average. Newer, deeper lows re-anchor the divergence chain to the newest
+    /// extreme while the TSI keeps stepping up vs the previous extreme; the setup only dies
+    /// when momentum deteriorates at a newer extreme.
     ///
     /// Next-bar confirmation is optional (default off). The scanner does not compute SL/PT
     /// (alert-only).
@@ -395,25 +400,31 @@ namespace cAlgo
         /// <summary>
         /// Evaluates a Short Reversal (TSI bearish divergence + weak close) at <paramref name="evalIndex"/>.
         /// Step 1 — divergence detection: some bar d in the last <paramref name="triggerWindow"/> bars
-        /// (including the signal bar itself) made the highest High of its full lookback window, and sat
-        /// at least <paramref name="minTsiDrop"/> below the TSI at the reference extreme (the highest
-        /// High of the prior window, at least <paramref name="minGap"/> bars back). The REFERENCE TSI
-        /// must exceed <paramref name="tsiLevel"/> (the prior move was genuinely strong); the divergence
-        /// bar's own TSI is unconstrained. No higher High since (stale invalidation).
-        /// Step 2 — the trigger: the signal bar closes weakly (CLV &lt;= clvMax). The divergence bar
-        /// and the trigger bar may be the same bar. Trend filter and <paramref name="spyShortOk"/> apply.
+        /// (including the signal bar itself) printed a High at or above the highest High of its rolling
+        /// lookback window (fresh extreme) or within <paramref name="nearExtremeAtr"/> ATR of it
+        /// (near-extreme), and sat at least <paramref name="minTsiDrop"/> below the TSI at the reference
+        /// extreme (the highest High of the prior window, at least <paramref name="minGap"/> bars back).
+        /// The REFERENCE TSI must exceed <paramref name="tsiLevel"/> (the prior move was genuinely
+        /// strong); the divergence bar's own TSI is unconstrained. No higher High since (stale invalidation).
+        /// Step 2 — the trigger: the signal bar closes weakly (CLV &lt;= clvMax) and, when
+        /// <paramref name="tsiMomentumPeriod"/> &gt; 1, its TSI sits at or below the rolling TSI average
+        /// (momentum flat or falling). The divergence bar and the trigger bar may be the same bar.
+        /// Trend filter and <paramref name="spyShortOk"/> apply.
         /// </summary>
         public static ReversalSetupResult EvaluateShortReversal(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
-            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
+            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
             IReadOnlyList<double> ema21, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
-            double clvMax,
+            double clvMax, double nearExtremeAtr,
+            int tsiMomentumPeriod,
             bool requireSma200Filter,
             bool requireConfirmation, bool spyShortOk)
         {
-            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, sma200, atr, evalIndex))
+            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, sma200, atr, evalIndex) ||
+                (tsiMomentumPeriod > 1 && tsiAvg == null) ||
+                (tsiMomentumPeriod > 1 && (tsiAvg.Count != closes.Count)))
                 return ReversalSetupResult.Reject(ReversalDirection.Short, "Null or out-of-range input");
 
             int t = evalIndex;
@@ -422,64 +433,18 @@ namespace cAlgo
 
             int signal = requireConfirmation ? t - 1 : t;
 
-            // Step 1 — most recent qualifying divergence bar d in [signal - triggerWindow, signal].
-            int divIdx = -1, refIdx = -1;
-            double refHigh = double.NaN, divTsi = double.NaN, refTsi = double.NaN;
-            for (int d = signal; d >= signal - triggerWindow && d >= 0; d--)
-            {
-                int windowStart = d - lookback;
-                if (windowStart < 0) break;
-
-                // Previous extreme: the highest high of the prior window (any gap). The
-                // divergence chain requires the newest extreme to keep a lower TSI than this.
-                int prevIdx = -1;
-                double prevHigh = double.NaN;
-                for (int i = windowStart; i < d; i++)
-                {
-                    if (prevIdx < 0 || highs[i] > prevHigh)
-                    {
-                        prevIdx = i;
-                        prevHigh = highs[i];
-                    }
-                }
-
-                // Reference: the highest high at least minGap back whose TSI marks a genuinely
-                // strong prior move (TSI > tsiLevel). Intermediate divergence highs (weaker TSI)
-                // are skipped, so a chain of higher-high / lower-TSI extremes re-anchors to the
-                // original strong extreme instead of dying on the newer print.
-                int rIdx = -1;
-                double rHigh = double.NaN;
-                for (int i = windowStart; i <= d - minGap; i++)
-                {
-                    if (double.IsNaN(tsi[i]) || !(tsi[i] > tsiLevel)) continue;
-                    if (rIdx < 0 || highs[i] > rHigh)
-                    {
-                        rIdx = i;
-                        rHigh = highs[i];
-                    }
-                }
-                if (prevIdx < 0 || rIdx < 0 ||
-                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]))
-                    continue;
-
-                if (highs[d] > prevHigh &&                // fresh extreme vs the whole prior window
-                    tsi[d] <= tsi[prevIdx] &&             // chain: TSI still below the previous extreme
-                    tsi[d] <= tsi[rIdx] - minTsiDrop)     // divergence vs the strong reference
-                {
-                    bool stale = false;
-                    for (int i = d + 1; i <= signal; i++)
-                    {
-                        if (highs[i] > highs[d]) { stale = true; break; }
-                    }
-                    if (stale) continue;
-
-                    divIdx = d; refIdx = rIdx; refHigh = rHigh; divTsi = tsi[d]; refTsi = tsi[rIdx];
-                    break;
-                }
-            }
+            // Step 1 — most recent qualifying divergence bar d in [signal - triggerWindow, signal]
+            // via the shared rolling-window core (fresh or near-extreme High, weaker TSI).
+            var divB = FindRollingBearishDivergence(highs, tsi, atr, signal,
+                lookback, minGap, tsiLevel, minTsiDrop, nearExtremeAtr, triggerWindow);
+            int divIdx = divB.DivIndex;
+            int refIdx = divB.RefIndex;
+            double refHigh = divB.RefLevel;
+            double divTsi = double.NaN, refTsi = divB.RefTsi;
             if (divIdx < 0)
                 return ReversalSetupResult.Reject(ReversalDirection.Short,
                     "No TSI bearish divergence in the trigger window");
+            divTsi = tsi[divIdx];
 
             // Step 2 — the trigger: weak close on the signal bar.
             double close = closes[signal], high = highs[signal], low = lows[signal];
@@ -494,6 +459,9 @@ namespace cAlgo
             if (!(clv <= clvMax))
                 return ReversalSetupResult.Reject(ReversalDirection.Short,
                     $"CLV {clv:F2} not <= {clvMax:F2} (no weak close trigger)");
+            if (tsiMomentumPeriod > 1 && !PassesShortMomentumGate(tsi, tsiAvg, signal, tsiMomentumPeriod))
+                return ReversalSetupResult.Reject(ReversalDirection.Short,
+                    $"TSI {tsi[signal]:F2} not <= {tsiAvg[signal]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/falling)");
             if (requireSma200Filter && !(close < sma))
                 return ReversalSetupResult.Reject(ReversalDirection.Short,
                     $"Close {close:F4} not < SMA200 {sma:F4} (short reversal trend filter)");
@@ -512,23 +480,28 @@ namespace cAlgo
         /// <summary>
         /// Evaluates a Long Reversal (TSI bullish divergence + strong close) at <paramref name="evalIndex"/>.
         /// Mirror of <see cref="EvaluateShortReversal"/>: a bar in the last <paramref name="triggerWindow"/>
-        /// bars made the lowest Low of its full lookback window and sits at least
-        /// <paramref name="minTsiDrop"/> above the TSI at the reference extreme (the lowest Low of the
-        /// prior window, at least <paramref name="minGap"/> bars back), whose TSI must be below
+        /// bars printed a Low at or below the lowest Low of its rolling lookback window (fresh extreme)
+        /// or within <paramref name="nearExtremeAtr"/> ATR above it (near-extreme higher low), and sits
+        /// at least <paramref name="minTsiDrop"/> above the TSI at the reference extreme (the lowest Low
+        /// of the prior window, at least <paramref name="minGap"/> bars back), whose TSI must be below
         /// -<paramref name="tsiLevel"/> (no lower Low since). The trigger is the strong close on the
-        /// signal bar: CLV &gt;= clvMin (may be the divergence bar itself).
+        /// signal bar: CLV &gt;= clvMin and, when <paramref name="tsiMomentumPeriod"/> &gt; 1, its TSI at
+        /// or above the rolling TSI average (momentum flat or rising); may be the divergence bar itself.
         /// </summary>
         public static ReversalSetupResult EvaluateLongReversal(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
-            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
+            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
             IReadOnlyList<double> ema21, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
-            double clvMin,
+            double clvMin, double nearExtremeAtr,
+            int tsiMomentumPeriod,
             bool requireSma200Filter,
             bool requireConfirmation, bool spyLongOk)
         {
-            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, sma200, atr, evalIndex))
+            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, sma200, atr, evalIndex) ||
+                (tsiMomentumPeriod > 1 && tsiAvg == null) ||
+                (tsiMomentumPeriod > 1 && (tsiAvg.Count != closes.Count)))
                 return ReversalSetupResult.Reject(ReversalDirection.Long, "Null or out-of-range input");
 
             int t = evalIndex;
@@ -537,64 +510,18 @@ namespace cAlgo
 
             int signal = requireConfirmation ? t - 1 : t;
 
-            // Step 1 — most recent qualifying divergence bar d in [signal - triggerWindow, signal].
-            int divIdx = -1, refIdx = -1;
-            double refLow = double.NaN, divTsi = double.NaN, refTsi = double.NaN;
-            for (int d = signal; d >= signal - triggerWindow && d >= 0; d--)
-            {
-                int windowStart = d - lookback;
-                if (windowStart < 0) break;
-
-                // Previous extreme: the lowest low of the prior window (any gap). The
-                // divergence chain requires the newest extreme to keep a higher TSI than this.
-                int prevIdx = -1;
-                double prevLow = double.NaN;
-                for (int i = windowStart; i < d; i++)
-                {
-                    if (prevIdx < 0 || lows[i] < prevLow)
-                    {
-                        prevIdx = i;
-                        prevLow = lows[i];
-                    }
-                }
-
-                // Reference: the lowest low at least minGap back whose TSI marks a genuinely
-                // strong prior move (TSI < -tsiLevel). Intermediate divergence lows (weaker TSI)
-                // are skipped, so a chain of lower-low / higher-TSI extremes re-anchors to the
-                // original strong extreme instead of dying on the newer print.
-                int rIdx = -1;
-                double rLow = double.NaN;
-                for (int i = windowStart; i <= d - minGap; i++)
-                {
-                    if (double.IsNaN(tsi[i]) || !(tsi[i] < -tsiLevel)) continue;
-                    if (rIdx < 0 || lows[i] < rLow)
-                    {
-                        rIdx = i;
-                        rLow = lows[i];
-                    }
-                }
-                if (prevIdx < 0 || rIdx < 0 ||
-                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]))
-                    continue;
-
-                if (lows[d] < prevLow &&                 // fresh extreme vs the whole prior window
-                    tsi[d] >= tsi[prevIdx] &&            // chain: TSI still above the previous extreme
-                    tsi[d] >= tsi[rIdx] + minTsiDrop)    // divergence vs the strong reference
-                {
-                    bool stale = false;
-                    for (int i = d + 1; i <= signal; i++)
-                    {
-                        if (lows[i] < lows[d]) { stale = true; break; }
-                    }
-                    if (stale) continue;
-
-                    divIdx = d; refIdx = rIdx; refLow = rLow; divTsi = tsi[d]; refTsi = tsi[rIdx];
-                    break;
-                }
-            }
+            // Step 1 — most recent qualifying divergence bar d in [signal - triggerWindow, signal]
+            // via the shared rolling-window core (fresh or near-extreme Low, stronger TSI).
+            var divL = FindRollingBullishDivergence(lows, tsi, atr, signal,
+                lookback, minGap, tsiLevel, minTsiDrop, nearExtremeAtr, triggerWindow);
+            int divIdx = divL.DivIndex;
+            int refIdx = divL.RefIndex;
+            double refLow = divL.RefLevel;
+            double divTsi = double.NaN, refTsi = divL.RefTsi;
             if (divIdx < 0)
                 return ReversalSetupResult.Reject(ReversalDirection.Long,
                     "No TSI bullish divergence in the trigger window");
+            divTsi = tsi[divIdx];
 
             // Step 2 — the trigger: strong close on the signal bar.
             double close = closes[signal], high = highs[signal], low = lows[signal];
@@ -609,6 +536,9 @@ namespace cAlgo
             if (!(clv >= clvMin))
                 return ReversalSetupResult.Reject(ReversalDirection.Long,
                     $"CLV {clv:F2} not >= {clvMin:F2} (no strong close trigger)");
+            if (tsiMomentumPeriod > 1 && !PassesLongMomentumGate(tsi, tsiAvg, signal, tsiMomentumPeriod))
+                return ReversalSetupResult.Reject(ReversalDirection.Long,
+                    $"TSI {tsi[signal]:F2} not >= {tsiAvg[signal]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/rising)");
             if (requireSma200Filter && !(close > sma))
                 return ReversalSetupResult.Reject(ReversalDirection.Long,
                     $"Close {close:F4} not > SMA200 {sma:F4} (long reversal trend filter)");
@@ -634,12 +564,13 @@ namespace cAlgo
         /// </summary>
         public static ReversalSetupResult Evaluate(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
-            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
+            IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
             IReadOnlyList<double> ema21, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
             ReversalScanDirection direction,
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
-            double clvShortMax, double clvLongMin,
+            double clvShortMax, double clvLongMin, double nearExtremeAtr,
+            int tsiMomentumPeriod,
             bool requireSma200Filter,
             bool requireConfirmation,
             bool spyLongOk, bool spyShortOk)
@@ -648,8 +579,9 @@ namespace cAlgo
 
             if (direction != ReversalScanDirection.ShortOnly)
             {
-                var lon = EvaluateLongReversal(closes, highs, lows, tsi, tsiSig, ema21, sma200, atr,
-                    evalIndex, lookback, minGap, tsiLevel, minTsiDrop, triggerWindow, clvLongMin,
+                var lon = EvaluateLongReversal(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, sma200, atr,
+                    evalIndex, lookback, minGap, tsiLevel, minTsiDrop, triggerWindow, clvLongMin, nearExtremeAtr,
+                    tsiMomentumPeriod,
                     requireSma200Filter, requireConfirmation, spyLongOk);
                 if (lon.IsTriggered) return lon;
                 if (direction == ReversalScanDirection.LongOnly) return lon;
@@ -658,8 +590,9 @@ namespace cAlgo
 
             if (direction != ReversalScanDirection.LongOnly)
             {
-                var sh = EvaluateShortReversal(closes, highs, lows, tsi, tsiSig, ema21, sma200, atr,
-                    evalIndex, lookback, minGap, tsiLevel, minTsiDrop, triggerWindow, clvShortMax,
+                var sh = EvaluateShortReversal(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, sma200, atr,
+                    evalIndex, lookback, minGap, tsiLevel, minTsiDrop, triggerWindow, clvShortMax, nearExtremeAtr,
+                    tsiMomentumPeriod,
                     requireSma200Filter, requireConfirmation, spyShortOk);
                 if (sh.IsTriggered) return sh;
                 res = sh;
@@ -674,133 +607,55 @@ namespace cAlgo
 
         /// <summary>
         /// Detects an active bearish price/TSI divergence at <paramref name="evalIndex"/> with the exact
-        /// same rule the reversal trigger uses: some bar d in the last <paramref name="triggerWindow"/>
-        /// bars (including the eval bar) made the highest High of its full lookback window, while its
-        /// TSI stayed at or below the TSI of the previous extreme and at least
-        /// <paramref name="minTsiDrop"/> below the TSI of the strong reference extreme (the highest
-        /// High at least <paramref name="minGap"/> bars back with TSI &gt; <paramref name="tsiLevel"/>),
-        /// and no higher High has printed since. When any qualifying divergence bar is found the
-        /// momentum behind the highs is fading, which suppresses continuation longs; the TSI extreme
-        /// gate keeps harmless lookbacks from suppressing healthy trends.
+        /// same rolling rule the reversal trigger uses: some bar d in the last
+        /// <paramref name="triggerWindow"/> bars (including the eval bar) printed a High at or above
+        /// the highest High of its rolling lookback window (fresh extreme) or within
+        /// <paramref name="nearExtremeAtr"/> ATR of it (near-extreme), while its TSI stayed at or
+        /// below the TSI of the previous extreme and at least <paramref name="minTsiDrop"/> below the
+        /// TSI of the strong reference extreme (the highest High at least <paramref name="minGap"/>
+        /// bars back with TSI &gt; <paramref name="tsiLevel"/>), and no higher High has printed since.
+        /// When any qualifying divergence bar is found the momentum behind the highs is fading,
+        /// which suppresses continuation longs; the TSI extreme gate keeps harmless lookbacks from
+        /// suppressing healthy trends.
         /// </summary>
         public static bool HasActiveBearishTsiDivergence(
             IReadOnlyList<double> highs,
             IReadOnlyList<double> tsi,
+            IReadOnlyList<double> atr,
             int evalIndex,
-            int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow)
+            int lookback, int minGap, double tsiLevel, double minTsiDrop, double nearExtremeAtr, int triggerWindow)
         {
-            if (highs == null || tsi == null) return false;
+            if (highs == null || tsi == null || atr == null) return false;
             int n = highs.Count;
-            if (n == 0 || tsi.Count != n || evalIndex < 0 || evalIndex >= n) return false;
+            if (n == 0 || tsi.Count != n || atr.Count != n || evalIndex < 0 || evalIndex >= n) return false;
 
-            for (int d = evalIndex; d >= evalIndex - triggerWindow && d >= 0; d--)
-            {
-                int windowStart = d - lookback;
-                if (windowStart < 0) break;
-
-                int prevIdx = -1;
-                double prevHigh = double.NaN;
-                for (int i = windowStart; i < d; i++)
-                {
-                    if (prevIdx < 0 || highs[i] > prevHigh)
-                    {
-                        prevIdx = i;
-                        prevHigh = highs[i];
-                    }
-                }
-
-                int rIdx = -1;
-                double rHigh = double.NaN;
-                for (int i = windowStart; i <= d - minGap; i++)
-                {
-                    if (double.IsNaN(tsi[i]) || !(tsi[i] > tsiLevel)) continue;
-                    if (rIdx < 0 || highs[i] > rHigh)
-                    {
-                        rIdx = i;
-                        rHigh = highs[i];
-                    }
-                }
-                if (prevIdx < 0 || rIdx < 0 ||
-                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]))
-                    continue;
-
-                if (highs[d] > prevHigh &&
-                    tsi[d] <= tsi[prevIdx] &&
-                    tsi[d] <= tsi[rIdx] - minTsiDrop)
-                {
-                    bool stale = false;
-                    for (int i = d + 1; i <= evalIndex; i++)
-                    {
-                        if (highs[i] > highs[d]) { stale = true; break; }
-                    }
-                    if (!stale) return true;
-                }
-            }
-            return false;
+            return FindRollingBearishDivergence(highs, tsi, atr, evalIndex,
+                lookback, minGap, tsiLevel, minTsiDrop, nearExtremeAtr, triggerWindow).DivIndex >= 0;
         }
 
         /// <summary>
         /// Mirror of <see cref="HasActiveBearishTsiDivergence"/> for lows: some bar d in the last
-        /// <paramref name="triggerWindow"/> bars made the lowest Low of its full lookback window while
-        /// its TSI stayed at or above the TSI of the previous extreme and at least
-        /// <paramref name="minTsiDrop"/> above the TSI of the strong reference extreme (the lowest Low
-        /// at least <paramref name="minGap"/> bars back with TSI &lt; -<paramref name="tsiLevel"/>), and no
-        /// lower Low has printed since. Suppresses continuation shorts.
+        /// <paramref name="triggerWindow"/> bars printed a Low at or below the lowest Low of its rolling
+        /// lookback window (fresh extreme) or within <paramref name="nearExtremeAtr"/> ATR above it
+        /// (near-extreme higher low) while its TSI stayed at or above the TSI of the previous extreme
+        /// and at least <paramref name="minTsiDrop"/> above the TSI of the strong reference extreme
+        /// (the lowest Low at least <paramref name="minGap"/> bars back with
+        /// TSI &lt; -<paramref name="tsiLevel"/>), and no lower Low has printed since. Suppresses
+        /// continuation shorts.
         /// </summary>
         public static bool HasActiveBullishTsiDivergence(
             IReadOnlyList<double> lows,
             IReadOnlyList<double> tsi,
+            IReadOnlyList<double> atr,
             int evalIndex,
-            int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow)
+            int lookback, int minGap, double tsiLevel, double minTsiDrop, double nearExtremeAtr, int triggerWindow)
         {
-            if (lows == null || tsi == null) return false;
+            if (lows == null || tsi == null || atr == null) return false;
             int n = lows.Count;
-            if (n == 0 || tsi.Count != n || evalIndex < 0 || evalIndex >= n) return false;
+            if (n == 0 || tsi.Count != n || atr.Count != n || evalIndex < 0 || evalIndex >= n) return false;
 
-            for (int d = evalIndex; d >= evalIndex - triggerWindow && d >= 0; d--)
-            {
-                int windowStart = d - lookback;
-                if (windowStart < 0) break;
-
-                int prevIdx = -1;
-                double prevLow = double.NaN;
-                for (int i = windowStart; i < d; i++)
-                {
-                    if (prevIdx < 0 || lows[i] < prevLow)
-                    {
-                        prevIdx = i;
-                        prevLow = lows[i];
-                    }
-                }
-
-                int rIdx = -1;
-                double rLow = double.NaN;
-                for (int i = windowStart; i <= d - minGap; i++)
-                {
-                    if (double.IsNaN(tsi[i]) || !(tsi[i] < -tsiLevel)) continue;
-                    if (rIdx < 0 || lows[i] < rLow)
-                    {
-                        rIdx = i;
-                        rLow = lows[i];
-                    }
-                }
-                if (prevIdx < 0 || rIdx < 0 ||
-                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]))
-                    continue;
-
-                if (lows[d] < prevLow &&
-                    tsi[d] >= tsi[prevIdx] &&
-                    tsi[d] >= tsi[rIdx] + minTsiDrop)
-                {
-                    bool stale = false;
-                    for (int i = d + 1; i <= evalIndex; i++)
-                    {
-                        if (lows[i] < lows[d]) { stale = true; break; }
-                    }
-                    if (!stale) return true;
-                }
-            }
-            return false;
+            return FindRollingBullishDivergence(lows, tsi, atr, evalIndex,
+                lookback, minGap, tsiLevel, minTsiDrop, nearExtremeAtr, triggerWindow).DivIndex >= 0;
         }
 
         // =========================================================================
@@ -1074,6 +929,174 @@ namespace cAlgo
                 catch { }
             }
             return TimeZoneInfo.Utc;
+        }
+
+        // =========================================================================
+        // --- 3b. ROLLING-DIVERGENCE SHARED CORE ---
+        // =========================================================================
+
+        /// <summary>
+        /// Finds the most recent qualifying bearish-divergence bar for <paramref name="evalIndex"/>
+        /// (this includes the signal bar itself) using the rolling structural window: the candidate
+        /// bar d must print a High that is at or above the highest High of its trailing window
+        /// (fresh extreme) or within <paramref name="nearExtremeAtr"/> ATR of it (near-extreme), with
+        /// windowStart = d - lookback clamped so the window never reaches further back than
+        /// <paramref name="minGap"/> bars before d. TSI constraints: TSI[d] at or below the TSI of
+        /// the previous window extreme, at least <paramref name="minTsiDrop"/> below the TSI of the
+        /// strong reference (highest High at least <paramref name="minGap"/> back with
+        /// TSI &gt; <paramref name="tsiLevel"/>), and no higher High printed since d (stale check). Only
+        /// bars d in the last <paramref name="triggerWindow"/> bars (including the evaluated bar)
+        /// are considered. Returns the divergence bar index, reference index, reference level and
+        /// reference TSI, or a DivIndex of -1 when no qualifying bar exists.
+        /// </summary>
+        private static (int DivIndex, int RefIndex, double RefLevel, double RefTsi) FindRollingBearishDivergence(
+            IReadOnlyList<double> highs, IReadOnlyList<double> tsi, IReadOnlyList<double> atr,
+            int evalIndex,
+            int lookback, int minGap, double tsiLevel, double minTsiDrop, double nearExtremeAtr, int triggerWindow)
+        {
+            for (int d = evalIndex; d >= evalIndex - triggerWindow && d >= 0; d--)
+            {
+                int windowStart = d - lookback;
+                if (windowStart < 0) windowStart = 0;
+                if (windowStart > d - minGap) windowStart = d - minGap;
+                if (windowStart < 0) break;
+
+                int prevIdx = -1;
+                double prevHigh = double.NaN;
+                for (int i = windowStart; i < d; i++)
+                {
+                    if (prevIdx < 0 || highs[i] > prevHigh)
+                    {
+                        prevIdx = i;
+                        prevHigh = highs[i];
+                    }
+                }
+
+                int rIdx = -1;
+                double rHigh = double.NaN;
+                for (int i = windowStart; i <= d - minGap; i++)
+                {
+                    if (double.IsNaN(tsi[i]) || !(tsi[i] > tsiLevel)) continue;
+                    if (rIdx < 0 || highs[i] > rHigh)
+                    {
+                        rIdx = i;
+                        rHigh = highs[i];
+                    }
+                }
+                if (prevIdx < 0 || rIdx < 0 ||
+                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]) ||
+                    double.IsNaN(atr[d]) || atr[d] <= 0.0)
+                    continue;
+
+                bool freshExtreme = highs[d] >= prevHigh;
+                bool nearExtreme = highs[d] >= prevHigh - nearExtremeAtr * atr[d];
+                if ((freshExtreme || nearExtreme) &&
+                    tsi[d] <= tsi[prevIdx] &&
+                    tsi[d] <= tsi[rIdx] - minTsiDrop)
+                {
+                    bool stale = false;
+                    for (int i = d + 1; i <= evalIndex; i++)
+                    {
+                        if (highs[i] > highs[d]) { stale = true; break; }
+                    }
+                    if (!stale) return (d, rIdx, rHigh, tsi[rIdx]);
+                }
+            }
+            return (-1, -1, double.NaN, double.NaN);
+        }
+
+        /// <summary>
+        /// Mirror of <see cref="FindRollingBearishDivergence"/> for lows: the candidate bar d must
+        /// print a Low at or below the lowest Low of its trailing window (fresh extreme) or within
+        /// <paramref name="nearExtremeAtr"/> ATR above it (near-extreme higher low), with the same
+        /// rolling window and the mirrored TSI constraints (TSI[d] at or above the previous
+        /// extreme's TSI, at least <paramref name="minTsiDrop"/> above the strong reference with
+        /// TSI &lt; -<paramref name="tsiLevel"/>), and no lower Low printed since d. Only bars d in the
+        /// last <paramref name="triggerWindow"/> bars (including the evaluated bar) are considered.
+        /// Returns the divergence bar index, reference index, reference level and reference TSI,
+        /// or a DivIndex of -1 when no qualifying bar exists.
+        /// </summary>
+        private static (int DivIndex, int RefIndex, double RefLevel, double RefTsi) FindRollingBullishDivergence(
+            IReadOnlyList<double> lows, IReadOnlyList<double> tsi, IReadOnlyList<double> atr,
+            int evalIndex,
+            int lookback, int minGap, double tsiLevel, double minTsiDrop, double nearExtremeAtr, int triggerWindow)
+        {
+            for (int d = evalIndex; d >= evalIndex - triggerWindow && d >= 0; d--)
+            {
+                int windowStart = d - lookback;
+                if (windowStart < 0) windowStart = 0;
+                if (windowStart > d - minGap) windowStart = d - minGap;
+                if (windowStart < 0) break;
+
+                int prevIdx = -1;
+                double prevLow = double.NaN;
+                for (int i = windowStart; i < d; i++)
+                {
+                    if (prevIdx < 0 || lows[i] < prevLow)
+                    {
+                        prevIdx = i;
+                        prevLow = lows[i];
+                    }
+                }
+
+                int rIdx = -1;
+                double rLow = double.NaN;
+                for (int i = windowStart; i <= d - minGap; i++)
+                {
+                    if (double.IsNaN(tsi[i]) || !(tsi[i] < -tsiLevel)) continue;
+                    if (rIdx < 0 || lows[i] < rLow)
+                    {
+                        rIdx = i;
+                        rLow = lows[i];
+                    }
+                }
+                if (prevIdx < 0 || rIdx < 0 ||
+                    double.IsNaN(tsi[d]) || double.IsNaN(tsi[prevIdx]) || double.IsNaN(tsi[rIdx]) ||
+                    double.IsNaN(atr[d]) || atr[d] <= 0.0)
+                    continue;
+
+                bool freshExtreme = lows[d] <= prevLow;
+                bool nearExtreme = lows[d] <= prevLow + nearExtremeAtr * atr[d];
+                if ((freshExtreme || nearExtreme) &&
+                    tsi[d] >= tsi[prevIdx] &&
+                    tsi[d] >= tsi[rIdx] + minTsiDrop)
+                {
+                    bool stale = false;
+                    for (int i = d + 1; i <= evalIndex; i++)
+                    {
+                        if (lows[i] < lows[d]) { stale = true; break; }
+                    }
+                    if (!stale) return (d, rIdx, rLow, tsi[rIdx]);
+                }
+            }
+            return (-1, -1, double.NaN, double.NaN);
+        }
+
+        /// <summary>
+        /// True when the TSI on the evaluated bar clears the short rolling-average momentum gate:
+        /// TSI[bar] &lt;= SMA(TSI, period)[bar] (short momentum flat or falling). A non-positive period
+        /// disables the gate; NaN in the TSI or its average fails the gate (reject, never pass).
+        /// </summary>
+        public static bool PassesShortMomentumGate(IReadOnlyList<double> tsi, IReadOnlyList<double> tsiAvg, int bar, int avgPeriod)
+        {
+            if (avgPeriod <= 1 || tsi == null || tsiAvg == null) return true;
+            if (bar < 0 || bar >= tsi.Count || bar >= tsiAvg.Count) return false;
+            double t = tsi[bar], a = tsiAvg[bar];
+            if (double.IsNaN(t) || double.IsNaN(a)) return false;
+            return t <= a;
+        }
+
+        /// <summary>
+        /// Mirror of <see cref="PassesShortMomentumGate"/> for longs: TSI[bar] &gt;= SMA(TSI, period)[bar]
+        /// (long momentum flat or rising). A non-positive period disables the gate; NaN fails it.
+        /// </summary>
+        public static bool PassesLongMomentumGate(IReadOnlyList<double> tsi, IReadOnlyList<double> tsiAvg, int bar, int avgPeriod)
+        {
+            if (avgPeriod <= 1 || tsi == null || tsiAvg == null) return true;
+            if (bar < 0 || bar >= tsi.Count || bar >= tsiAvg.Count) return false;
+            double t = tsi[bar], a = tsiAvg[bar];
+            if (double.IsNaN(t) || double.IsNaN(a)) return false;
+            return t >= a;
         }
 
         // =========================================================================
