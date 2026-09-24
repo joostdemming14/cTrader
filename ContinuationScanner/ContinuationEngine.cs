@@ -90,14 +90,16 @@ namespace cAlgo
     ///
     /// Long Continuation trigger on bar t:
     ///   Low <= EMA21 on the trigger bar, then Close > EMA21, EMA21 > EMA50, Close > SMA200,
-    ///   CLV >= +clvMin, TSI > 0 (momentum regime), TSI >= SMA(tsiMomentumPeriod, TSI) on the trigger
+    ///   no bearish close (CLV veto: reject CLV < -clvVetoThreshold; a strong close is NOT required),
+    ///   TSI > 0 (momentum regime), TSI >= SMA(tsiMomentumPeriod, TSI) on the trigger
     ///   bar (momentum flat or rising vs the rolling average), and no active bearish rolling
     ///   price/TSI divergence (fresh or near-extreme High with weaker TSI). SPY gate optional
     ///   (default off).
     ///
     /// Short Continuation trigger on bar t:
     ///   High >= EMA21 on the trigger bar, then Close < EMA21, EMA21 < EMA50, Close < SMA200,
-    ///   CLV <= -clvMin, TSI < 0 (momentum regime), TSI <= SMA(tsiMomentumPeriod, TSI) on the trigger
+    ///   no bullish close (CLV veto: reject CLV > clvVetoThreshold; a weak close is NOT required),
+    ///   TSI < 0 (momentum regime), TSI <= SMA(tsiMomentumPeriod, TSI) on the trigger
     ///   bar (momentum flat or falling vs the rolling average), and no active bullish rolling
     ///   price/TSI divergence (fresh or near-extreme Low with stronger TSI). SPY gate optional
     ///   (default off).
@@ -112,14 +114,15 @@ namespace cAlgo
     {
         /// <summary>
         /// Evaluates a Long Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
-        /// The trigger bar must touch EMA21 (Low <= EMA21) and close back above it.
+        /// The trigger bar must touch EMA21 (Low <= EMA21) and close back above it. A bearish close
+        /// (CLV &lt; -clvVetoThreshold) is rejected; a strong close is not required.
         /// </summary>
         public static ContinuationSetupResult EvaluateLongContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
             IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
             IReadOnlyList<double> ema21, IReadOnlyList<double> ema50, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
-            double clvMin,
+            double clvVetoThreshold,
             int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
             int tsiMomentumPeriod,
             bool spyLongOk)
@@ -154,9 +157,9 @@ namespace cAlgo
             if (!(close > sma))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"Close {close:F4} not > SMA200 {sma:F4} (long-term trend filter)");
-            if (!(clv >= clvMin))
+            if (!(clv >= -clvVetoThreshold))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
-                    $"CLV {clv:F2} not >= {clvMin:F2}");
+                    $"CLV {clv:F2} not >= {-clvVetoThreshold:F2} (bearish close veto on a long signal)");
             if (!(tsiT > 0.0))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"TSI {tsiT:F2} not > 0 (momentum regime)");
@@ -178,14 +181,15 @@ namespace cAlgo
         /// <summary>
         /// Evaluates a Short Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
         /// Mirror of <see cref="EvaluateLongContinuation"/>: High >= EMA21 on the trigger bar,
-        /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, CLV <= -clvMin, TSI < 0. SPY gate optional (default off).
+        /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, no bullish close (CLV veto, reject CLV > clvVetoThreshold),
+        /// TSI < 0. SPY gate optional (default off).
         /// </summary>
         public static ContinuationSetupResult EvaluateShortContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
             IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
             IReadOnlyList<double> ema21, IReadOnlyList<double> ema50, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
-            double clvMin,
+            double clvVetoThreshold,
             int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
             int tsiMomentumPeriod,
             bool spyShortOk)
@@ -220,9 +224,9 @@ namespace cAlgo
             if (!(close < sma))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"Close {close:F4} not < SMA200 {sma:F4} (long-term trend filter)");
-            if (!(clv <= -clvMin))
+            if (!(clv <= clvVetoThreshold))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
-                    $"CLV {clv:F2} not <= {-clvMin:F2}");
+                    $"CLV {clv:F2} not <= {clvVetoThreshold:F2} (bullish close veto on a short signal)");
             if (!(tsiT < 0.0))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"TSI {tsiT:F2} not < 0 (momentum regime)");
@@ -254,7 +258,7 @@ namespace cAlgo
             IReadOnlyList<double> ema21, IReadOnlyList<double> ema50, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
             int evalIndex,
             ReversalScanDirection direction,
-            double clvMin,
+            double clvVetoThreshold,
             int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
             int tsiMomentumPeriod,
             bool spyLongOk, bool spyShortOk)
@@ -264,7 +268,7 @@ namespace cAlgo
             if (direction != ReversalScanDirection.ShortOnly)
             {
                 var lon = EvaluateLongContinuation(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, ema50, sma200, atr,
-                    evalIndex, clvMin,
+                    evalIndex, clvVetoThreshold,
                     divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow,
                     tsiMomentumPeriod,
                     spyLongOk);
@@ -276,7 +280,7 @@ namespace cAlgo
             if (direction != ReversalScanDirection.LongOnly)
             {
                 var sh = EvaluateShortContinuation(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, ema50, sma200, atr,
-                    evalIndex, clvMin,
+                    evalIndex, clvVetoThreshold,
                     divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow,
                     tsiMomentumPeriod,
                     spyShortOk);
