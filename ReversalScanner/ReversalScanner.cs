@@ -694,7 +694,7 @@ namespace cAlgo
 
             int evalIdx = targetIdx;
             {
-                var res = ReversalEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig, tsi.TsiAvg,
+                var res = ReversalEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig, snapshot.TsiAvg,
                     ema21, sma200, atr, evalIdx, AllowedDirection,
                     DivergenceLookback, DivergenceMinGap, TsiExtremeLevel, MinTsiDivergenceDrop, TriggerWindow,
                     ClvVetoThreshold, NearExtremeAtrMargin,

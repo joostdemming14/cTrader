@@ -690,7 +690,7 @@ namespace cAlgo
 
             int evalIdx = targetIdx;
             {
-                var res = ContinuationEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig, tsi.TsiAvg,
+                var res = ContinuationEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig, snapshot.TsiAvg,
                     ema50, slowEma50, sma200, atr, evalIdx, AllowedDirection,
                     ClvVetoThreshold,
                     DivergenceLookback, DivergenceMinGap, DivergenceTsiExtremeLevel, DivergenceMinTsiDrop, DivergenceNearExtremeAtr, DivergenceTriggerWindow,
