@@ -13,11 +13,13 @@ namespace cAlgo
     ///
     /// Final continuation logic:
     ///   Long Continuation: the latest completed bar touches Low &lt;= EMA21, then closes &gt; EMA21 with
-    ///     EMA21 &gt; EMA50, no bearish close (CLV veto: reject CLV &lt; -0.35; a strong close is NOT
+    ///     EMA21 &gt; EMA50, close in the upper half of the bar (CLV veto: reject CLV &lt; -ClvVetoThreshold,
+    ///     default 0.0 = upper half; a strong close is NOT
     ///     required), TSI &gt; 0 (momentum regime) and TSI at or above its
     ///     TsiMomentumPeriod-bar average (momentum flat or rising). SPY gate optional (default off).
     ///   Short Continuation: the latest completed bar touches High &gt;= EMA21, then closes &lt; EMA21 with
-    ///     EMA21 &lt; EMA50, no bullish close (CLV veto: reject CLV &gt; +0.35; a weak close is NOT
+    ///     EMA21 &lt; EMA50, close in the lower half of the bar (CLV veto: reject CLV &gt; ClvVetoThreshold,
+    ///     default 0.0 = lower half; a weak close is NOT
     ///     required), TSI &lt; 0 (momentum regime) and TSI at or below its rolling
     ///     average (momentum flat or falling). SPY gate optional (default off).
     ///
@@ -94,8 +96,8 @@ namespace cAlgo
         // =========================================================================
         // --- 3. Continuation Thresholds ---
         // =========================================================================
-        [Parameter("CLV Veto Threshold (abs)", Group = "3. Continuation Thresholds", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
-        public double ClvVetoThreshold { get; set; } = 0.35;
+        [Parameter("CLV Veto Threshold (abs, 0 = close in correct half)", Group = "3. Continuation Thresholds", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
+        public double ClvVetoThreshold { get; set; } = 0.0;
 
         [Parameter("Divergence Lookback (bars)", Group = "3. Continuation Thresholds", DefaultValue = 90, MinValue = 5)]
         public int DivergenceLookback { get; set; } = 90;
@@ -300,7 +302,7 @@ namespace cAlgo
             Print($"[ContinuationScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
             Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod})/TrendEMA({TrendEmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}). (No RSI — TSI zero-line regime + reversal-style divergence suppression on the trigger bar; signal line display-only.)");
             Print($"[ContinuationScanner] Divergence suppression (same rolling rule as the ReversalScanner): lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {DivergenceTsiExtremeLevel:F1}, min TSI gap {DivergenceMinTsiDrop:F2}, trigger window {DivergenceTriggerWindow} bars (0 = off), near-extreme margin {DivergenceNearExtremeAtr:F1} ATR. TSI momentum gate: {(TsiMomentumPeriod > 1 ? $"TSI vs SMA{TsiMomentumPeriod} of TSI (flat or rising for longs, flat or falling for shorts)" : "OFF")}.");
-            Print($"[ContinuationScanner] Thresholds: CLV veto +-{ClvVetoThreshold:F2} (longs reject a bearish close, shorts a bullish close; a strong/weak close is NOT required). No SL/PT computed (alert-only).");
+            Print($"[ContinuationScanner] Thresholds: CLV veto (longs reject CLV < -{ClvVetoThreshold:F2}, shorts reject CLV > {ClvVetoThreshold:F2}; 0 = close in the correct half; a strong/weak close is NOT required). No SL/PT computed (alert-only).");
             Print($"[ContinuationScanner] Latest closed bar must touch EMA21 and reclaim/break it. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
             Print($"[ContinuationScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ContinuationScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");

@@ -90,7 +90,8 @@ namespace cAlgo
     ///
     /// Long Continuation trigger on bar t:
     ///   Low <= EMA21 on the trigger bar, then Close > EMA21, EMA21 > EMA50, Close > SMA200,
-    ///   no bearish close (CLV veto: reject CLV < -clvVetoThreshold; a strong close is NOT required),
+    ///   close in the upper half of the bar (CLV veto: reject CLV < -clvVetoThreshold, 0.0 =
+    ///   exactly the half rule; a strong close is NOT required),
     ///   TSI > 0 (momentum regime), TSI >= SMA(tsiMomentumPeriod, TSI) on the trigger
     ///   bar (momentum flat or rising vs the rolling average), and no active bearish rolling
     ///   price/TSI divergence (fresh or near-extreme High with weaker TSI). SPY gate optional
@@ -98,7 +99,8 @@ namespace cAlgo
     ///
     /// Short Continuation trigger on bar t:
     ///   High >= EMA21 on the trigger bar, then Close < EMA21, EMA21 < EMA50, Close < SMA200,
-    ///   no bullish close (CLV veto: reject CLV > clvVetoThreshold; a weak close is NOT required),
+    ///   close in the lower half of the bar (CLV veto: reject CLV > clvVetoThreshold, 0.0 =
+    ///   exactly the half rule; a weak close is NOT required),
     ///   TSI < 0 (momentum regime), TSI <= SMA(tsiMomentumPeriod, TSI) on the trigger
     ///   bar (momentum flat or falling vs the rolling average), and no active bullish rolling
     ///   price/TSI divergence (fresh or near-extreme Low with stronger TSI). SPY gate optional
@@ -181,7 +183,7 @@ namespace cAlgo
         /// <summary>
         /// Evaluates a Short Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
         /// Mirror of <see cref="EvaluateLongContinuation"/>: High >= EMA21 on the trigger bar,
-        /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, no bullish close (CLV veto, reject CLV > clvVetoThreshold),
+        /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, close in the lower half (CLV veto, reject CLV > clvVetoThreshold, 0.0 = lower half),
         /// TSI < 0. SPY gate optional (default off).
         /// </summary>
         public static ContinuationSetupResult EvaluateShortContinuation(

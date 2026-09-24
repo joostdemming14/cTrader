@@ -191,8 +191,8 @@ namespace cAlgo
     ///      the setup survives newer, more extreme prints as long as the TSI keeps stepping
     ///      down vs the previous extreme. It only dies when momentum recovers at a newer
     ///      extreme (a higher High with a higher TSI).
-    ///   2. TRIGGER: the signal bar does not close against the setup (CLV veto: longs reject
-    ///      a bearish close <= -clvVetoThreshold, shorts a bullish close >= +clvVetoThreshold) and its TSI sits at or
+    ///   2. TRIGGER: the signal bar closes in the correct half (CLV veto: longs reject
+    ///      CLV < -clvVetoThreshold, shorts CLV > +clvVetoThreshold; 0.0 = exactly the half rule) and its TSI sits at or
     ///      below the rolling TSI average (momentum flat or falling; `tsiMomentumPeriod`).
     ///      The divergence bar and the trigger bar may be the same bar. Trend filter and gates
     ///      still apply.

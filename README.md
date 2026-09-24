@@ -27,7 +27,7 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | | Long Reversal | Short Reversal |
 |---|---|---|
 | Divergence (step 1) | Low <= lowest Low of the rolling window (3..90 bars; reference >= `DivergenceMinGap` (3) bars back) or higher Low within 1.0 ATR of it, reference TSI < -10, TSI >= reference TSI + `Min TSI Divergence Gap` (0.1), no lower Low since | High >= highest High of the rolling window (3..90 bars; reference >= `DivergenceMinGap` (3) bars back) or lower High within 1.0 ATR of it, reference TSI > +10, TSI <= reference TSI - `Min TSI Divergence Gap` (0.1), no higher High since |
-| Trigger (step 2) | CLV veto: reject CLV < -0.35 (bearish close); a strong close is NOT required | CLV veto: reject CLV > +0.35 (bullish close); a weak close is NOT required |
+| Trigger (step 2) | CLV veto: reject CLV < -ClvVetoThreshold (default 0.0 = close in the upper half); a strong close is NOT required | CLV veto: reject CLV > +ClvVetoThreshold (default 0.0 = close in the lower half); a weak close is NOT required |
 | TSI momentum gate | TSI >= SMA(5) of TSI (flat or rising) | TSI <= SMA(5) of TSI (flat or falling) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Confirmation (optional, default off) | Next close > signal-bar High | Next close < signal-bar Low |
@@ -40,7 +40,7 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | Trend alignment | EMA21 > EMA50 | EMA21 < EMA50 |
 | Trigger | Close > EMA21 (reclaim) | Close < EMA21 (breakdown) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
-| Close location | CLV veto: reject CLV < -0.35 (bearish close); a strong close is NOT required | CLV veto: reject CLV > +0.35 (bullish close); a weak close is NOT required |
+| Close location | CLV veto: reject CLV < -ClvVetoThreshold (default 0.0 = close in the upper half); a strong close is NOT required | CLV veto: reject CLV > +ClvVetoThreshold (default 0.0 = close in the lower half); a weak close is NOT required |
 | Momentum regime | TSI > 0 | TSI < 0 |
 | TSI momentum gate | TSI >= SMA(5) of TSI (flat or rising) | TSI <= SMA(5) of TSI (flat or falling) |
 | Divergence suppression | No active bearish price/TSI divergence with the exact rolling ReversalScanner rule (fresh or near-extreme High with TSI at least `DivergenceMinTsiDrop` (0.1) below the reference extreme TSI, reference > +`DivergenceTsiExtremeLevel` (10)); parameters mirror the reversal thresholds | Mirrored for lows (fresh or near-extreme Low, TSI >= reference + 0.1, reference < -10) |
