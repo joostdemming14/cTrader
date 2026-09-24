@@ -12,13 +12,15 @@ namespace cAlgo
     /// Reversal Scanner for the cTrader 2.0 suite (Daily bars, EOD signals, entry next open).
     ///
     /// Final trigger logic (TSI divergence, no pivot confirmation lag):
-    ///   Short Reversal trigger: fresh lookback High (vs the reference High at least MinGap bars back)
-    ///     with TSI at least 1.0 below the TSI at the reference extreme (bearish divergence). The
-    ///     REFERENCE TSI must have been &gt; +10 (a genuinely strong prior move; a bear-market rally
-    ///     from -30 to +10 qualifies); the new extreme's own TSI is unconstrained.
-    ///     Trigger: CLV &lt;= -0.35 (weak close). SPY gate optional (default off).
-    ///   Long Reversal trigger: fresh lookback Low with TSI at least 1.0 above the reference extreme
-    ///     TSI (reference &lt; -10), CLV &gt;= +0.35. SPY gate optional (default off).
+    ///   Short Reversal trigger: fresh rolling-window High (vs the reference High at least MinGap bars
+    ///     back) or a lower High within NearExtremeAtrMargin x ATR of it, with TSI at least 1.0 below
+    ///     the TSI at the reference extreme (bearish divergence). The REFERENCE TSI must have been
+    ///     &gt; +10 (a genuinely strong prior move; a bear-market rally from -30 to +10 qualifies); the
+    ///     new extreme's own TSI is unconstrained. Trigger: CLV &lt;= -0.35 (weak close) and TSI at or
+    ///     below its TsiMomentumPeriod-bar average (momentum flat or falling). SPY gate optional (default off).
+    ///   Long Reversal trigger: fresh rolling-window Low (or a higher Low within NearExtremeAtrMargin
+    ///     x ATR of it) with TSI at least 1.0 above the reference extreme TSI (reference &lt; -10),
+    ///     CLV &gt;= +0.35 and TSI at or above its rolling average. SPY gate optional (default off).
     ///
     /// Two-step trigger: the divergence is detected on any bar in the last `TriggerWindow` bars
     /// (including the signal bar itself), and the TRIGGER is the weak close (CLV) on the signal
@@ -90,8 +92,8 @@ namespace cAlgo
         [Parameter("CLV Long Min (>=)", Group = "3. Reversal Thresholds", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
         public double ClvLongMin { get; set; } = 0.35;
 
-        [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 30, MinValue = 5)]
-        public int DivergenceLookback { get; set; } = 30;
+        [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 90, MinValue = 5)]
+        public int DivergenceLookback { get; set; } = 90;
 
         [Parameter("Divergence Min Gap (bars)", Group = "3. Reversal Thresholds", DefaultValue = 3, MinValue = 1)]
         public int DivergenceMinGap { get; set; } = 3;
@@ -104,6 +106,12 @@ namespace cAlgo
 
         [Parameter("Trigger Window After Divergence (bars)", Group = "3. Reversal Thresholds", DefaultValue = 5, MinValue = 0)]
         public int TriggerWindow { get; set; } = 5;
+
+        [Parameter("Near-Extreme Margin (x ATR)", Group = "3. Reversal Thresholds", DefaultValue = 1.0, MinValue = 0.0, MaxValue = 5.0, Step = 0.1)]
+        public double NearExtremeAtrMargin { get; set; } = 1.0;
+
+        [Parameter("TSI Momentum Average Period", Group = "3. Reversal Thresholds", DefaultValue = 5, MinValue = 0, MaxValue = 100)]
+        public int TsiMomentumPeriod { get; set; } = 5;
 
         [Parameter("Require 200 SMA Trend Filter", Group = "3. Reversal Thresholds", DefaultValue = true)]
         public bool Require200SmaFilter { get; set; } = true;
@@ -213,6 +221,7 @@ namespace cAlgo
             public double[] Sma200 { get; init; } = Array.Empty<double>();
             public double[] Atr { get; init; } = Array.Empty<double>();
             public (double[] Tsi, double[] TsiSig) Tsi { get; init; }
+            public double[] TsiAvg { get; init; } = Array.Empty<double>();
         }
 
         // State tracking
@@ -296,7 +305,7 @@ namespace cAlgo
             Print($"[ReversalScanner] Started. Watchlist '{WatchlistName}' loaded with {_watchlistSymbols.Count} symbols.");
             Print($"[ReversalScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
             Print($"[ReversalScanner] Indicators: EMA({EmaPeriod}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}). (No RSI — TSI divergence on the trigger bar; signal line display only.)");
-            Print($"[ReversalScanner] Thresholds: CLV short <= {ClvShortMax:F2} / long >= {ClvLongMin:F2} | Divergence: lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {TsiExtremeLevel:F1}, min divergence gap {MinTsiDivergenceDrop:F2} (bearish: TSI below reference by this much; bullish: above by this much), trigger window {TriggerWindow} bars | SMA200 {(Require200SmaFilter ? "ON" : "OFF")} | Next-bar confirmation {(RequireReversalConfirmation ? "ON" : "OFF")}. No SL/PT computed (alert-only).");
+            Print($"[ReversalScanner] Thresholds: CLV short <= {ClvShortMax:F2} / long >= {ClvLongMin:F2} | Divergence: lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {TsiExtremeLevel:F1}, min divergence gap {MinTsiDivergenceDrop:F2} (bearish: TSI below reference by this much; bullish: above by this much), trigger window {TriggerWindow} bars, near-extreme margin {NearExtremeAtrMargin:F1} ATR | TSI momentum gate: {(TsiMomentumPeriod > 1 ? $"TSI vs SMA{TsiMomentumPeriod} of TSI (flat or rising for longs, flat or falling for shorts)" : "OFF")} | SMA200 {(Require200SmaFilter ? "ON" : "OFF")} | Next-bar confirmation {(RequireReversalConfirmation ? "ON" : "OFF")}. No SL/PT computed (alert-only).");
             Print($"[ReversalScanner] Benchmark: {(RequireBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only scanner (no trade execution). Entry = next open.");
             Print($"[ReversalScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ReversalScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
@@ -637,6 +646,7 @@ namespace cAlgo
                     newLows[i] = bars.LowPrices[i];
                 }
 
+                var tsiSeries = ReversalEngine.ComputeTsi(newCloses, TsiLongPeriod, TsiShortPeriod, TsiSignalPeriod);
                 snapshot = new IndicatorSnapshot
                 {
                     BarsCount = n,
@@ -647,7 +657,8 @@ namespace cAlgo
                     Ema21 = ReversalEngine.ComputeEma(newCloses, EmaPeriod),
                     Sma200 = ReversalEngine.ComputeSma(newCloses, Sma200Period),
                     Atr = ReversalEngine.ComputeAtr(newHighs, newLows, newCloses, AtrPeriod),
-                    Tsi = ReversalEngine.ComputeTsi(newCloses, TsiLongPeriod, TsiShortPeriod, TsiSignalPeriod)
+                    Tsi = tsiSeries,
+                    TsiAvg = TsiMomentumPeriod > 1 ? ReversalEngine.ComputeSma(tsiSeries.Tsi, TsiMomentumPeriod) : Array.Empty<double>()
                 };
                 _indicatorCache[symbolName] = snapshot;
             }
@@ -681,10 +692,11 @@ namespace cAlgo
 
             int evalIdx = targetIdx;
             {
-                var res = ReversalEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig,
+                var res = ReversalEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig, tsi.TsiAvg,
                     ema21, sma200, atr, evalIdx, AllowedDirection,
                     DivergenceLookback, DivergenceMinGap, TsiExtremeLevel, MinTsiDivergenceDrop, TriggerWindow,
-                    ClvShortMax, ClvLongMin,
+                    ClvShortMax, ClvLongMin, NearExtremeAtrMargin,
+                    TsiMomentumPeriod,
                     Require200SmaFilter, RequireReversalConfirmation,
                     spyLongForSymbol, spyShortForSymbol);
 
