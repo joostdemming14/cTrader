@@ -846,6 +846,23 @@ namespace cAlgo
         }
 
         /// <summary>
+        /// UTC instant at which the daily bar that opened at <paramref name="barOpenUtc"/> becomes
+        /// evaluable: the 16:00 ET session close for US cash equities (the exact boundary
+        /// <see cref="HasUsCashSessionEnded"/> uses to deem the bar completed) or the 24h ET
+        /// wall-clock boundary for every other instrument (see <see cref="GetDailyBarCloseTimeUtc"/>).
+        /// Order/position lifetime checks must use this boundary so a bar "closes" at the same
+        /// instant both when it is selected and when it is filtered by creation time.
+        /// </summary>
+        public static DateTime GetDailyBarEvaluationTimeUtc(DateTime barOpenUtc, bool usCashEquity)
+        {
+            if (!usCashEquity) return GetDailyBarCloseTimeUtc(barOpenUtc);
+            DateTime openEt = ConvertUtcToEt(barOpenUtc);
+            DateTime sessionEndEt = openEt.Date.AddHours(16.0);
+            if (sessionEndEt <= openEt) sessionEndEt = sessionEndEt.AddDays(1);
+            return ConvertEtToUtc(sessionEndEt);
+        }
+
+        /// <summary>
         /// True when the daily bar that opened at <paramref name="barOpenUtc"/> can no longer receive
         /// data, i.e. it is a completed bar that may be evaluated.
         ///

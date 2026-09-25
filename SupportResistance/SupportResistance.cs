@@ -318,7 +318,10 @@ namespace cAlgo
             }
 
             _timerTicks++;
-            if ((_dailyBars == null || _dailyBars == Bars || _dailyBars.Count >= 250) && _timerTicks >= 3)
+            // Hard cap: symbols whose available daily history never reaches the 250-bar target
+            // (recent IPOs, thin CFDs) must not keep the bootstrap timer and its full-chart
+            // recompute loop alive forever.
+            if (((_dailyBars == null || _dailyBars == Bars || _dailyBars.Count >= 250) && _timerTicks >= 3) || _timerTicks >= 150)
             {
                 Timer.Stop();
             }
@@ -424,6 +427,10 @@ namespace cAlgo
             _h1CachedCount = -1;
             _channelCacheCount = -1;
             _initialized = true;
+            // Seed the alert dedup state so the first post-init pass skips the primary-bar close
+            // transition that completed before this indicator started (no stale attach alert).
+            if (_primaryBars != null && _primaryBars.Count >= 3)
+                _lastAlertBarIndex = _primaryBars.Count;
         }
 
         public override void Calculate(int index)
@@ -845,7 +852,7 @@ namespace cAlgo
             if (_atrDaily != null && _dailyBars != null && _dailyBars.Count > AtrPeriod)
             {
                 int dailyIdx = FindParentBarIndex(_dailyBars, barTime);
-                if (dailyIdx > 0 && index < Bars.Count - 1) dailyIdx--;
+                if (dailyIdx > 0 && index == Bars.Count - 1) dailyIdx--;
                 else if (dailyIdx >= _dailyBars.Count) dailyIdx = _dailyBars.Count - 1;
 
                 if (dailyIdx >= 0 && dailyIdx < _dailyBars.Count)

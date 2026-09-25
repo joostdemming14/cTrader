@@ -168,7 +168,7 @@ namespace cAlgo
             if (tsiMomentumPeriod > 1 && !ReversalEngine.PassesLongMomentumGate(tsi, tsiAvg, t, tsiMomentumPeriod))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"TSI {tsiT:F2} not >= {tsiAvg[t]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/rising)");
-            if (ReversalEngine.HasActiveBearishTsiDivergence(highs, tsi, atr, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
+            if (divergenceTriggerWindow > 0 && ReversalEngine.HasActiveBearishTsiDivergence(highs, tsi, atr, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"Active bearish price/TSI divergence (fresh high with lower TSI) over the last {divergenceTriggerWindow} bars");
             if (!spyLongOk)
@@ -235,7 +235,7 @@ namespace cAlgo
             if (tsiMomentumPeriod > 1 && !ReversalEngine.PassesShortMomentumGate(tsi, tsiAvg, t, tsiMomentumPeriod))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"TSI {tsiT:F2} not <= {tsiAvg[t]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/falling)");
-            if (ReversalEngine.HasActiveBullishTsiDivergence(lows, tsi, atr, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
+            if (divergenceTriggerWindow > 0 && ReversalEngine.HasActiveBullishTsiDivergence(lows, tsi, atr, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"Active bullish price/TSI divergence (fresh low with higher TSI) over the last {divergenceTriggerWindow} bars");
             if (!spyShortOk)

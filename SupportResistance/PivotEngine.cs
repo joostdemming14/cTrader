@@ -271,7 +271,18 @@ namespace cAlgo
         public bool IsFlipped => _highTouches > 0 && _lowTouches > 0;
 
         /// <summary>Most recent bar index among member touches, or -1 if untracked.</summary>
-        public int LatestBarIndex => _barIndices.Count > 0 ? _barIndices[_barIndices.Count - 1] : -1;
+        public int LatestBarIndex
+        {
+            get
+            {
+                // Members are stored in price order, not time order: the most recent touch is
+                // the highest bar index, not the last-added member.
+                int max = -1;
+                for (int i = 0; i < _barIndices.Count; i++)
+                    if (_barIndices[i] > max) max = _barIndices[i];
+                return max;
+            }
+        }
 
         /// <summary>Median price of all members — the level's primary drawn price.</summary>
         public double Representative
