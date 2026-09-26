@@ -13,6 +13,8 @@ namespace cAlgo
     /// a position entered below the zero line is only closed after TSI first crossed above it
     /// and then crossed back against the position, so a cBot restart never misses an earlier
     /// cross, and a pending exit is disarmed when the regime recovers first.
+    /// TSI zero-line exits only close net-profitable positions; a losing position is
+    /// left to its stop loss, which stays the leading exit.
     /// </summary>
     [Robot(AccessRights = AccessRights.None, TimeZone = TimeZones.UTC)]
     public class TradeManager : Robot
@@ -80,7 +82,7 @@ namespace cAlgo
             _resolvedCryptoBenchmarkSymbol = ResolveSymbolName(CryptoBenchmarkSymbol, "BTCUSD", "BTCEUR", "BTCGBP", "XBTUSD");
             _cryptoSymbols = ParseCryptoSymbols(CryptoSymbolsCsv);
             Timer.Start(TimeSpan.FromSeconds(30));
-            Print($"[TradeManager] Started. Daily close check at {DailyCloseHourEt:D2}:{DailyCloseMinuteEt:D2} ET. SPY macro gate {(RequireBenchmarkFilter ? "ON" : "OFF")} | BTC macro gate {(RequireCryptoBenchmarkFilter ? $"ON ({_resolvedCryptoBenchmarkSymbol}, {_cryptoSymbols.Count} symbols)" : "OFF")} | TSI exits: zero-line cross against the direction, tracked from order/position creation.");
+            Print($"[TradeManager] Started. Daily close check at {DailyCloseHourEt:D2}:{DailyCloseMinuteEt:D2} ET. SPY macro gate {(RequireBenchmarkFilter ? "ON" : "OFF")} | BTC macro gate {(RequireCryptoBenchmarkFilter ? $"ON ({_resolvedCryptoBenchmarkSymbol}, {_cryptoSymbols.Count} symbols)" : "OFF")} | TSI exits: zero-line cross against the direction, tracked from order/position creation, net-profitable positions only (SL leads otherwise).");
         }
 
         protected override void OnTimer()
@@ -217,6 +219,15 @@ namespace cAlgo
                 bool spreadAcceptable = spread >= 0.0 && spread <= MaxSpreadAtr * pending.Value.Atr;
                 bool delayExpired = (Server.TimeInUtc - pending.Value.DetectedAt).TotalMinutes >= MaxExitDelayMinutes;
                 if (!spreadAcceptable && !delayExpired) continue;
+
+                if (position.NetProfit <= 0.0)
+                {
+                    // TSI zero-line exits only close net-profitable positions.
+                    // A losing position is left to its stop loss, which stays the
+                    // leading exit. Stay armed in case profit turns before the
+                    // regime recovers and disarms the exit.
+                    continue;
+                }
 
                 var result = ClosePosition(position);
                 Print($"[TradeManager] TSI-close position {position.Id} {position.SymbolName} {position.TradeType}: {(result.IsSuccessful ? "closed" : result.Error.ToString())}.");
