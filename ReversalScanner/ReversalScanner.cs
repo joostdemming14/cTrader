@@ -97,14 +97,14 @@ namespace cAlgo
         [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 90, MinValue = 5)]
         public int DivergenceLookback { get; set; } = 90;
 
-        [Parameter("Divergence Min Gap (bars)", Group = "3. Reversal Thresholds", DefaultValue = 3, MinValue = 1)]
-        public int DivergenceMinGap { get; set; } = 3;
+        [Parameter("Divergence Min Gap (bars)", Group = "3. Reversal Thresholds", DefaultValue = 5, MinValue = 1)]
+        public int DivergenceMinGap { get; set; } = 5;
 
         [Parameter("TSI Extreme Level (abs)", Group = "3. Reversal Thresholds", DefaultValue = 10.0, MinValue = 0.0, MaxValue = 100.0, Step = 1.0)]
         public double TsiExtremeLevel { get; set; } = 10.0;
 
-        [Parameter("Min TSI Divergence Gap", Group = "3. Reversal Thresholds", DefaultValue = 0.1, MinValue = 0.0, MaxValue = 100.0, Step = 0.01)]
-        public double MinTsiDivergenceDrop { get; set; } = 0.1;
+        [Parameter("Min TSI Divergence Gap", Group = "3. Reversal Thresholds", DefaultValue = 3.0, MinValue = 0.0, MaxValue = 100.0, Step = 0.1)]
+        public double MinTsiDivergenceDrop { get; set; } = 3.0;
 
         [Parameter("Trigger Window After Divergence (bars)", Group = "3. Reversal Thresholds", DefaultValue = 5, MinValue = 0)]
         public int TriggerWindow { get; set; } = 5;
@@ -114,6 +114,9 @@ namespace cAlgo
 
         [Parameter("TSI Momentum Average Period", Group = "3. Reversal Thresholds", DefaultValue = 5, MinValue = 0, MaxValue = 100)]
         public int TsiMomentumPeriod { get; set; } = 5;
+
+        [Parameter("Min Extension From EMA (x ATR, 0 = off)", Group = "3. Reversal Thresholds", DefaultValue = 1.5, MinValue = 0.0, MaxValue = 10.0, Step = 0.1)]
+        public double MinExtensionAtr { get; set; } = 1.5;
 
         [Parameter("Require 200 SMA Trend Filter", Group = "3. Reversal Thresholds", DefaultValue = true)]
         public bool Require200SmaFilter { get; set; } = true;
@@ -307,7 +310,7 @@ namespace cAlgo
             Print($"[ReversalScanner] Started. Watchlist '{WatchlistName}' loaded with {_watchlistSymbols.Count} symbols.");
             Print($"[ReversalScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
             Print($"[ReversalScanner] Indicators: EMA({EmaPeriod}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}). (No RSI — TSI divergence on the trigger bar; signal line display only.)");
-            Print($"[ReversalScanner] Thresholds: CLV veto (longs reject CLV < -{ClvVetoThreshold:F2}, shorts reject CLV > {ClvVetoThreshold:F2}; 0 = close in the correct half; a strong/weak close is NOT required) | Divergence: lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {TsiExtremeLevel:F1}, min divergence gap {MinTsiDivergenceDrop:F2} (bearish: TSI below reference by this much; bullish: above by this much), trigger window {TriggerWindow} bars, near-extreme margin {NearExtremeAtrMargin:F1} ATR | TSI momentum gate: {(TsiMomentumPeriod > 1 ? $"TSI vs SMA{TsiMomentumPeriod} of TSI (flat or rising for longs, flat or falling for shorts)" : "OFF")} | SMA200 {(Require200SmaFilter ? "ON" : "OFF")} | Next-bar confirmation {(RequireReversalConfirmation ? "ON" : "OFF")}. No SL/PT computed (alert-only).");
+            Print($"[ReversalScanner] Thresholds: CLV veto (longs reject CLV < -{ClvVetoThreshold:F2}, shorts reject CLV > {ClvVetoThreshold:F2}; 0 = close in the correct half; a strong/weak close is NOT required) | Divergence: lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {TsiExtremeLevel:F1}, min divergence gap {MinTsiDivergenceDrop:F2} (bearish: TSI below reference by this much; bullish: above by this much), trigger window {TriggerWindow} bars, near-extreme margin {NearExtremeAtrMargin:F1} ATR | TSI momentum gate: {(TsiMomentumPeriod > 1 ? $"TSI vs SMA{TsiMomentumPeriod} of TSI (flat or rising for longs, flat or falling for shorts)" : "OFF")} | SMA200 {(Require200SmaFilter ? "ON" : "OFF")} | Extension filter {(MinExtensionAtr > 0.0 ? $"{MinExtensionAtr:F1} ATR beyond EMA{EmaPeriod}" : "OFF")} | Next-bar confirmation {(RequireReversalConfirmation ? "ON" : "OFF")}. No SL/PT computed (alert-only).");
             Print($"[ReversalScanner] Benchmark: {(RequireBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only scanner (no trade execution). Entry = next open.");
             Print($"[ReversalScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ReversalScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
@@ -698,7 +701,7 @@ namespace cAlgo
                     ema21, sma200, atr, evalIdx, AllowedDirection,
                     DivergenceLookback, DivergenceMinGap, TsiExtremeLevel, MinTsiDivergenceDrop, TriggerWindow,
                     ClvVetoThreshold, NearExtremeAtrMargin,
-                    TsiMomentumPeriod,
+                    TsiMomentumPeriod, MinExtensionAtr,
                     Require200SmaFilter, RequireReversalConfirmation,
                     spyLongForSymbol, spyShortForSymbol);
 
@@ -1271,7 +1274,7 @@ namespace cAlgo
             var sb = new StringBuilder();
             sb.AppendLine("=== REVERSAL SCANNER (Daily, EOD signals, entry next open) ===");
             sb.AppendLine($"Watchlist: {WatchlistName} ({totalCount} symbols) | Trigger: {ScheduleMode} | Direction: {AllowedDirection}");
-            sb.AppendLine($"EMA({EmaPeriod}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Divergence L{DivergenceLookback}/G{DivergenceMinGap} > {TsiExtremeLevel:F1} drop {MinTsiDivergenceDrop:F2} | Trigger window {TriggerWindow} bars | No RSI");
+            sb.AppendLine($"EMA({EmaPeriod}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Divergence L{DivergenceLookback}/G{DivergenceMinGap} > {TsiExtremeLevel:F1} drop {MinTsiDivergenceDrop:F2} | Trigger window {TriggerWindow} bars | Extension {(MinExtensionAtr > 0.0 ? $"{MinExtensionAtr:F1} ATR" : "off")} | No RSI");
             sb.AppendLine($"Thresholds: CLV veto {ClvVetoThreshold:F2} (abs) | Confirmation {(RequireReversalConfirmation ? "ON" : "OFF")} | No SL/PT");
             sb.AppendLine($"Benchmark: {spyStatus} | {_spyDetail}");
             sb.AppendLine($"VIX: {vixStatus} | {_vixDetail}");

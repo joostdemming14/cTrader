@@ -102,14 +102,14 @@ namespace cAlgo
         [Parameter("Divergence Lookback (bars)", Group = "3. Continuation Thresholds", DefaultValue = 90, MinValue = 5)]
         public int DivergenceLookback { get; set; } = 90;
 
-        [Parameter("Divergence Min Gap (bars)", Group = "3. Continuation Thresholds", DefaultValue = 3, MinValue = 1)]
-        public int DivergenceMinGap { get; set; } = 3;
+        [Parameter("Divergence Min Gap (bars)", Group = "3. Continuation Thresholds", DefaultValue = 5, MinValue = 1)]
+        public int DivergenceMinGap { get; set; } = 5;
 
         [Parameter("Divergence TSI Extreme Level (abs)", Group = "3. Continuation Thresholds", DefaultValue = 10.0, MinValue = 0.0, MaxValue = 100.0, Step = 1.0)]
         public double DivergenceTsiExtremeLevel { get; set; } = 10.0;
 
-        [Parameter("Divergence Min TSI Gap", Group = "3. Continuation Thresholds", DefaultValue = 0.1, MinValue = 0.0, MaxValue = 100.0, Step = 0.01)]
-        public double DivergenceMinTsiDrop { get; set; } = 0.1;
+        [Parameter("Divergence Min TSI Gap", Group = "3. Continuation Thresholds", DefaultValue = 3.0, MinValue = 0.0, MaxValue = 100.0, Step = 0.1)]
+        public double DivergenceMinTsiDrop { get; set; } = 3.0;
 
         [Parameter("Divergence Trigger Window (bars, 0 = off)", Group = "3. Continuation Thresholds", DefaultValue = 5, MinValue = 0, MaxValue = 50)]
         public int DivergenceTriggerWindow { get; set; } = 5;
