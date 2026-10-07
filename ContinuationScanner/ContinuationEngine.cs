@@ -110,7 +110,9 @@ namespace cAlgo
     /// TSI-vs-its-own-average gate decides the direction of travel (flat counts as aligned), and
     /// the divergence suppression shares the exact rolling rule with the ReversalScanner (short
     /// 3-to-lookback-bar divergences included). The TSI signal line is not part of the continuation
-    /// trigger (it is computed for display only). The scanner does not compute SL/PT (alert-only).
+    /// trigger (it is computed for display only). Next-bar confirmation is optional (the scanner
+    /// default is ON): the confirmation bar must close beyond the signal bar's high (longs) /
+    /// low (shorts). The scanner does not compute SL/PT (alert-only).
     /// </summary>
     public static class ContinuationEngine
     {
@@ -118,6 +120,8 @@ namespace cAlgo
         /// Evaluates a Long Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
         /// The trigger bar must touch EMA21 (Low <= EMA21) and close back above it. A bearish close
         /// (CLV &lt; -clvVetoThreshold) is rejected; a strong close is not required.
+        /// When <paramref name="requireConfirmation"/> is set, the signal bar is the previous bar
+        /// and the confirmation bar must close above the signal-bar high.
         /// </summary>
         public static ContinuationSetupResult EvaluateLongContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
@@ -127,6 +131,7 @@ namespace cAlgo
             double clvVetoThreshold,
             int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
             int tsiMomentumPeriod,
+            bool requireConfirmation,
             bool spyLongOk)
         {
             if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr, evalIndex) ||
@@ -134,16 +139,19 @@ namespace cAlgo
                 return ContinuationSetupResult.Reject(ReversalDirection.Long, "Null or out-of-range input");
 
             int t = evalIndex;
+            if (t < (requireConfirmation ? 2 : 1))
+                return ContinuationSetupResult.Reject(ReversalDirection.Long, "No prior bar for the confirmation");
+            int signal = requireConfirmation ? t - 1 : t;
 
-            // Step 1: the trigger bar touched at or below EMA21 (Low <= EMA21).
-            if (double.IsNaN(ema21[t]) || double.IsNaN(lows[t]) || !(lows[t] <= ema21[t]))
+            // Step 1: the signal bar touched at or below EMA21 (Low <= EMA21).
+            if (double.IsNaN(ema21[signal]) || double.IsNaN(lows[signal]) || !(lows[signal] <= ema21[signal]))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
-                    "Latest bar did not touch EMA21");
+                    "Signal bar did not touch EMA21");
 
-            // Step 2: trigger conditions on bar t (EOD close).
-            double close = closes[t], high = highs[t], low = lows[t];
-            double tsiT = tsi[t], tsiSigT = tsiSig[t];
-            double ema = ema21[t], slowEma = ema50[t], sma = sma200[t], atrT = atr[t];
+            // Step 2: trigger conditions on the signal bar (EOD close).
+            double close = closes[signal], high = highs[signal], low = lows[signal];
+            double tsiT = tsi[signal], tsiSigT = tsiSig[signal];
+            double ema = ema21[signal], slowEma = ema50[signal], sma = sma200[signal], atrT = atr[signal];
             double clv = ClvOf(close, high, low);
 
             if (double.IsNaN(tsiT) || double.IsNaN(tsiSigT) ||
@@ -165,18 +173,21 @@ namespace cAlgo
             if (!(tsiT > 0.0))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"TSI {tsiT:F2} not > 0 (momentum regime)");
-            if (tsiMomentumPeriod > 1 && !ReversalEngine.PassesLongMomentumGate(tsi, tsiAvg, t, tsiMomentumPeriod))
+            if (tsiMomentumPeriod > 1 && !ReversalEngine.PassesLongMomentumGate(tsi, tsiAvg, signal, tsiMomentumPeriod))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
-                    $"TSI {tsiT:F2} not >= {tsiAvg[t]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/rising)");
-            if (divergenceTriggerWindow > 0 && ReversalEngine.HasActiveBearishTsiDivergence(highs, tsi, atr, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
+                    $"TSI {tsiT:F2} not >= {tsiAvg[signal]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/rising)");
+            if (divergenceTriggerWindow > 0 && ReversalEngine.HasActiveBearishTsiDivergence(highs, tsi, atr, signal, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"Active bearish price/TSI divergence (fresh high with lower TSI) over the last {divergenceTriggerWindow} bars");
+            if (requireConfirmation && !(closes[t] > highs[signal]))
+                return ContinuationSetupResult.Reject(ReversalDirection.Long,
+                    $"Confirmation close {closes[t]:F4} not > signal-bar high {highs[signal]:F4}");
             if (!spyLongOk)
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     "SPY benchmark gate failed (SPY not > SPY_SMA50)");
 
             return new ContinuationSetupResult(true, ReversalDirection.Long,
-                -1, double.NaN, double.NaN, t, t, close, high, low, clv, tsiT, tsiSigT,
+                -1, double.NaN, double.NaN, signal, t, close, high, low, clv, tsiT, tsiSigT,
                 ema, sma, atrT, double.NaN, "Long Continuation triggered");
         }
 
@@ -184,7 +195,9 @@ namespace cAlgo
         /// Evaluates a Short Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
         /// Mirror of <see cref="EvaluateLongContinuation"/>: High >= EMA21 on the trigger bar,
         /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, close in the lower half (CLV veto, reject CLV > clvVetoThreshold, 0.0 = lower half),
-        /// TSI < 0. SPY gate optional (default off).
+        /// TSI < 0. SPY gate optional (default off). When
+        /// <paramref name="requireConfirmation"/> is set, the confirmation bar must close below
+        /// the signal-bar low.
         /// </summary>
         public static ContinuationSetupResult EvaluateShortContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
@@ -194,6 +207,7 @@ namespace cAlgo
             double clvVetoThreshold,
             int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
             int tsiMomentumPeriod,
+            bool requireConfirmation,
             bool spyShortOk)
         {
             if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, ema50, sma200, atr, evalIndex) ||
@@ -201,16 +215,19 @@ namespace cAlgo
                 return ContinuationSetupResult.Reject(ReversalDirection.Short, "Null or out-of-range input");
 
             int t = evalIndex;
+            if (t < (requireConfirmation ? 2 : 1))
+                return ContinuationSetupResult.Reject(ReversalDirection.Short, "No prior bar for the confirmation");
+            int signal = requireConfirmation ? t - 1 : t;
 
-            // Step 1: the trigger bar touched at or above EMA21 (High >= EMA21).
-            if (double.IsNaN(ema21[t]) || double.IsNaN(highs[t]) || !(highs[t] >= ema21[t]))
+            // Step 1: the signal bar touched at or above EMA21 (High >= EMA21).
+            if (double.IsNaN(ema21[signal]) || double.IsNaN(highs[signal]) || !(highs[signal] >= ema21[signal]))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
-                    "Latest bar did not touch EMA21");
+                    "Signal bar did not touch EMA21");
 
-            // Step 2: trigger conditions on bar t (EOD close).
-            double close = closes[t], high = highs[t], low = lows[t];
-            double tsiT = tsi[t], tsiSigT = tsiSig[t];
-            double ema = ema21[t], slowEma = ema50[t], sma = sma200[t], atrT = atr[t];
+            // Step 2: trigger conditions on the signal bar (EOD close).
+            double close = closes[signal], high = highs[signal], low = lows[signal];
+            double tsiT = tsi[signal], tsiSigT = tsiSig[signal];
+            double ema = ema21[signal], slowEma = ema50[signal], sma = sma200[signal], atrT = atr[signal];
             double clv = ClvOf(close, high, low);
 
             if (double.IsNaN(tsiT) || double.IsNaN(tsiSigT) ||
@@ -232,18 +249,21 @@ namespace cAlgo
             if (!(tsiT < 0.0))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"TSI {tsiT:F2} not < 0 (momentum regime)");
-            if (tsiMomentumPeriod > 1 && !ReversalEngine.PassesShortMomentumGate(tsi, tsiAvg, t, tsiMomentumPeriod))
+            if (tsiMomentumPeriod > 1 && !ReversalEngine.PassesShortMomentumGate(tsi, tsiAvg, signal, tsiMomentumPeriod))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
-                    $"TSI {tsiT:F2} not <= {tsiAvg[t]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/falling)");
-            if (divergenceTriggerWindow > 0 && ReversalEngine.HasActiveBullishTsiDivergence(lows, tsi, atr, t, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
+                    $"TSI {tsiT:F2} not <= {tsiAvg[signal]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/falling)");
+            if (divergenceTriggerWindow > 0 && ReversalEngine.HasActiveBullishTsiDivergence(lows, tsi, atr, signal, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"Active bullish price/TSI divergence (fresh low with higher TSI) over the last {divergenceTriggerWindow} bars");
+            if (requireConfirmation && !(closes[t] < lows[signal]))
+                return ContinuationSetupResult.Reject(ReversalDirection.Short,
+                    $"Confirmation close {closes[t]:F4} not < signal-bar low {lows[signal]:F4}");
             if (!spyShortOk)
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     "SPY benchmark gate failed (SPY not < SPY_SMA50)");
 
             return new ContinuationSetupResult(true, ReversalDirection.Short,
-                -1, double.NaN, double.NaN, t, t, close, high, low, clv, tsiT, tsiSigT,
+                -1, double.NaN, double.NaN, signal, t, close, high, low, clv, tsiT, tsiSigT,
                 ema, sma, atrT, double.NaN, "Short Continuation triggered");
         }
 
@@ -263,6 +283,7 @@ namespace cAlgo
             double clvVetoThreshold,
             int divergenceLookback, int divergenceMinGap, double divergenceTsiLevel, double divergenceMinTsiDrop, double divergenceNearExtremeAtr, int divergenceTriggerWindow,
             int tsiMomentumPeriod,
+            bool requireConfirmation,
             bool spyLongOk, bool spyShortOk)
         {
             ContinuationSetupResult res = ContinuationSetupResult.Reject(ReversalDirection.None, "Not evaluated");
@@ -273,6 +294,7 @@ namespace cAlgo
                     evalIndex, clvVetoThreshold,
                     divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow,
                     tsiMomentumPeriod,
+                    requireConfirmation,
                     spyLongOk);
                 if (lon.IsTriggered) return lon;
                 if (direction == ReversalScanDirection.LongOnly) return lon;
@@ -285,6 +307,7 @@ namespace cAlgo
                     evalIndex, clvVetoThreshold,
                     divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow,
                     tsiMomentumPeriod,
+                    requireConfirmation,
                     spyShortOk);
                 if (sh.IsTriggered) return sh;
                 res = sh;

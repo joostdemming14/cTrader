@@ -196,7 +196,7 @@ namespace cAlgo
     ///      below the rolling TSI average (momentum flat or falling; `tsiMomentumPeriod`). When
     ///      `minExtensionAtr` > 0 the close must also sit at least that many ATR above EMA21
     ///      (extended-move filter; 0 disables it).
-    ///      The divergence bar and the trigger bar may be the same bar. Trend filter and gates
+    ///      The divergence bar and the trigger bar may be the same bar. Gates
     ///      still apply.
     ///
     /// Long Reversal is the mirror: fresh or near-extreme (higher low within `nearExtremeAtr`
@@ -207,7 +207,7 @@ namespace cAlgo
     /// extreme while the TSI keeps stepping up vs the previous extreme; the setup only dies
     /// when momentum deteriorates at a newer extreme.
     ///
-    /// Next-bar confirmation is optional (default off). The scanner does not compute SL/PT
+    /// Next-bar confirmation is optional (the scanner default is ON). The scanner does not compute SL/PT
     /// (alert-only).
     /// </summary>
     public static class ReversalEngine
@@ -416,21 +416,20 @@ namespace cAlgo
         /// (momentum flat or falling). When <paramref name="minExtensionAtr"/> &gt; 0, the signal-bar
         /// close must also sit at least that many ATR above EMA21 (the move is genuinely extended,
         /// not a shallow drift). The divergence bar and the trigger bar may be the same bar.
-        /// Trend filter and <paramref name="spyShortOk"/> apply.
+        /// <paramref name="spyShortOk"/> applies.
         /// </summary>
         public static ReversalSetupResult EvaluateShortReversal(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
             IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
-            IReadOnlyList<double> ema21, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
+            IReadOnlyList<double> ema21, IReadOnlyList<double> atr,
             int evalIndex,
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
             double clvVetoThreshold, double nearExtremeAtr,
             int tsiMomentumPeriod,
             double minExtensionAtr,
-            bool requireSma200Filter,
             bool requireConfirmation, bool spyShortOk)
         {
-            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, sma200, atr, evalIndex) ||
+            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, atr, evalIndex) ||
                 (tsiMomentumPeriod > 1 && tsiAvg == null) ||
                 (tsiMomentumPeriod > 1 && (tsiAvg.Count != closes.Count)))
                 return ReversalSetupResult.Reject(ReversalDirection.Short, "Null or out-of-range input");
@@ -457,11 +456,11 @@ namespace cAlgo
             // Step 2 — the trigger: the signal bar must not close against the setup.
             double close = closes[signal], high = highs[signal], low = lows[signal];
             double tsiSigT = tsiSig[signal];
-            double ema = ema21[signal], sma = sma200[signal], atrT = atr[signal];
+            double ema = ema21[signal], atrT = atr[signal];
             double clv = ClvOf(close, high, low);
 
             if (double.IsNaN(tsiSigT) ||
-                double.IsNaN(ema) || double.IsNaN(sma) || double.IsNaN(atrT) || atrT <= 0.0 || double.IsNaN(clv))
+                double.IsNaN(ema) || double.IsNaN(atrT) || atrT <= 0.0 || double.IsNaN(clv))
                 return ReversalSetupResult.Reject(ReversalDirection.Short, "Signal-bar indicator NaN/invalid");
 
             if (!(clv <= clvVetoThreshold))
@@ -473,9 +472,6 @@ namespace cAlgo
             if (minExtensionAtr > 0.0 && !(close >= ema + minExtensionAtr * atrT))
                 return ReversalSetupResult.Reject(ReversalDirection.Short,
                     $"Close {close:F4} not >= EMA21 {ema:F4} + {minExtensionAtr:F1} x ATR {atrT:F4} (extension filter: short needs an extended move)");
-            if (requireSma200Filter && !(close < sma))
-                return ReversalSetupResult.Reject(ReversalDirection.Short,
-                    $"Close {close:F4} not < SMA200 {sma:F4} (short reversal trend filter)");
             if (requireConfirmation && !(closes[t] < lows[signal]))
                 return ReversalSetupResult.Reject(ReversalDirection.Short,
                     $"Confirmation close {closes[t]:F4} not < signal-bar low {lows[signal]:F4}");
@@ -506,16 +502,15 @@ namespace cAlgo
         public static ReversalSetupResult EvaluateLongReversal(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
             IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
-            IReadOnlyList<double> ema21, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
+            IReadOnlyList<double> ema21, IReadOnlyList<double> atr,
             int evalIndex,
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
             double clvVetoThreshold, double nearExtremeAtr,
             int tsiMomentumPeriod,
             double minExtensionAtr,
-            bool requireSma200Filter,
             bool requireConfirmation, bool spyLongOk)
         {
-            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, sma200, atr, evalIndex) ||
+            if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, atr, evalIndex) ||
                 (tsiMomentumPeriod > 1 && tsiAvg == null) ||
                 (tsiMomentumPeriod > 1 && (tsiAvg.Count != closes.Count)))
                 return ReversalSetupResult.Reject(ReversalDirection.Long, "Null or out-of-range input");
@@ -542,11 +537,11 @@ namespace cAlgo
             // Step 2 — the trigger: the signal bar must not close against the setup.
             double close = closes[signal], high = highs[signal], low = lows[signal];
             double tsiSigT = tsiSig[signal];
-            double ema = ema21[signal], sma = sma200[signal], atrT = atr[signal];
+            double ema = ema21[signal], atrT = atr[signal];
             double clv = ClvOf(close, high, low);
 
             if (double.IsNaN(tsiSigT) ||
-                double.IsNaN(ema) || double.IsNaN(sma) || double.IsNaN(atrT) || atrT <= 0.0 || double.IsNaN(clv))
+                double.IsNaN(ema) || double.IsNaN(atrT) || atrT <= 0.0 || double.IsNaN(clv))
                 return ReversalSetupResult.Reject(ReversalDirection.Long, "Signal-bar indicator NaN/invalid");
 
             if (!(clv >= -clvVetoThreshold))
@@ -558,9 +553,6 @@ namespace cAlgo
             if (minExtensionAtr > 0.0 && !(close <= ema - minExtensionAtr * atrT))
                 return ReversalSetupResult.Reject(ReversalDirection.Long,
                     $"Close {close:F4} not <= EMA21 {ema:F4} - {minExtensionAtr:F1} x ATR {atrT:F4} (extension filter: long needs an extended move)");
-            if (requireSma200Filter && !(close > sma))
-                return ReversalSetupResult.Reject(ReversalDirection.Long,
-                    $"Close {close:F4} not > SMA200 {sma:F4} (long reversal trend filter)");
             if (requireConfirmation && !(closes[t] > highs[signal]))
                 return ReversalSetupResult.Reject(ReversalDirection.Long,
                     $"Confirmation close {closes[t]:F4} not > signal-bar high {highs[signal]:F4}");
@@ -584,14 +576,13 @@ namespace cAlgo
         public static ReversalSetupResult Evaluate(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
             IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig, IReadOnlyList<double> tsiAvg,
-            IReadOnlyList<double> ema21, IReadOnlyList<double> sma200, IReadOnlyList<double> atr,
+            IReadOnlyList<double> ema21, IReadOnlyList<double> atr,
             int evalIndex,
             ReversalScanDirection direction,
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
             double clvVetoThreshold, double nearExtremeAtr,
             int tsiMomentumPeriod,
             double minExtensionAtr,
-            bool requireSma200Filter,
             bool requireConfirmation,
             bool spyLongOk, bool spyShortOk)
         {
@@ -599,10 +590,10 @@ namespace cAlgo
 
             if (direction != ReversalScanDirection.ShortOnly)
             {
-                var lon = EvaluateLongReversal(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, sma200, atr,
+                var lon = EvaluateLongReversal(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, atr,
                     evalIndex, lookback, minGap, tsiLevel, minTsiDrop, triggerWindow, clvVetoThreshold, nearExtremeAtr,
                     tsiMomentumPeriod, minExtensionAtr,
-                    requireSma200Filter, requireConfirmation, spyLongOk);
+                    requireConfirmation, spyLongOk);
                 if (lon.IsTriggered) return lon;
                 if (direction == ReversalScanDirection.LongOnly) return lon;
                 res = lon;
@@ -610,10 +601,10 @@ namespace cAlgo
 
             if (direction != ReversalScanDirection.LongOnly)
             {
-                var sh = EvaluateShortReversal(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, sma200, atr,
+                var sh = EvaluateShortReversal(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, atr,
                     evalIndex, lookback, minGap, tsiLevel, minTsiDrop, triggerWindow, clvVetoThreshold, nearExtremeAtr,
                     tsiMomentumPeriod, minExtensionAtr,
-                    requireSma200Filter, requireConfirmation, spyShortOk);
+                    requireConfirmation, spyShortOk);
                 if (sh.IsTriggered) return sh;
                 res = sh;
             }
@@ -1149,13 +1140,13 @@ namespace cAlgo
         private static bool IsBadInput(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
             IReadOnlyList<double> tsi, IReadOnlyList<double> tsiSig,
-            IReadOnlyList<double> ema21, IReadOnlyList<double> sma200, IReadOnlyList<double> atr, int evalIndex)
+            IReadOnlyList<double> ema21, IReadOnlyList<double> atr, int evalIndex)
         {
             if (closes == null || highs == null || lows == null || tsi == null ||
-                tsiSig == null || ema21 == null || sma200 == null || atr == null) return true;
+                tsiSig == null || ema21 == null || atr == null) return true;
             int n = closes.Count;
             if (n == 0 || highs.Count != n || lows.Count != n ||
-                tsi.Count != n || tsiSig.Count != n || ema21.Count != n || sma200.Count != n || atr.Count != n) return true;
+                tsi.Count != n || tsiSig.Count != n || ema21.Count != n || atr.Count != n) return true;
             return evalIndex < 0 || evalIndex >= n;
         }
     }

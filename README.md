@@ -18,11 +18,11 @@ Each scanner has a pure C# engine (`ReversalEngine.cs` / `ContinuationEngine.cs`
 
 ## Signal logic (both scanners, daily EOD bars)
 
-Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter, ATR(14) Wilder, CLV** plus momentum: **TSI(25,13,13) — zero-line regime for continuations, divergence trigger for reversals**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
+Indicator stack: **EMA21, EMA50 trend alignment (continuations), SMA200 trend filter (continuations), ATR(14) Wilder, CLV** plus momentum: **TSI(25,13,13) — zero-line regime for continuations, divergence trigger for reversals**. No RSI. All conditions are evaluated on the close of the last completed daily bar.
 
 ### Reversal (ReversalScanner)
 
-Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a bar in the last `TriggerWindow` (5) bars printed a fresh or near-extreme rolling-window extreme whose TSI diverged from the reference extreme. The structural window is rolling: it spans 5 to `DivergenceLookback` (90) bars per candidate bar, so short 5-bar divergences and structural 90-bar ones share one rule. A near-extreme (higher low / lower high within `Near-Extreme Margin` (1.0) ATR of the window extreme) also qualifies with the same TSI constraints. Newer, more extreme prints do NOT kill the setup: the divergence re-anchors to the newest extreme as long as the TSI keeps stepping in the divergent direction vs the previous extreme (divergence chain — price higher + TSI lower for shorts, mirrored for longs, including against the original strong reference when intermediate extremes are too weak to anchor). The setup only dies when momentum recovers at a newer extreme. Step 2 — the trigger: the signal bar's close location (CLV veto, see table) plus the TSI momentum gate (TSI >= its rolling average for longs, <= for shorts, `TSI Momentum Average Period` (5); flat counts as aligned) plus the extension filter (close at least `Min Extension From EMA` (1.5) ATR beyond EMA21; 0 = off). The divergence bar and trigger bar may be the same bar. The optional next-bar confirmation (default OFF) must close beyond the signal bar high/low.
+Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a bar in the last `TriggerWindow` (5) bars printed a fresh or near-extreme rolling-window extreme whose TSI diverged from the reference extreme. The structural window is rolling: it spans 5 to `DivergenceLookback` (90) bars per candidate bar, so short 5-bar divergences and structural 90-bar ones share one rule. A near-extreme (higher low / lower high within `Near-Extreme Margin` (1.0) ATR of the window extreme) also qualifies with the same TSI constraints. Newer, more extreme prints do NOT kill the setup: the divergence re-anchors to the newest extreme as long as the TSI keeps stepping in the divergent direction vs the previous extreme (divergence chain — price higher + TSI lower for shorts, mirrored for longs, including against the original strong reference when intermediate extremes are too weak to anchor). The setup only dies when momentum recovers at a newer extreme. Step 2 — the trigger: the signal bar's close location (CLV veto, see table) plus the TSI momentum gate (TSI >= its rolling average for longs, <= for shorts, `TSI Momentum Average Period` (5); flat counts as aligned) plus the extension filter (close at least `Min Extension From EMA` (1.5) ATR beyond EMA21; 0 = off). The divergence bar and trigger bar may be the same bar. The optional next-bar confirmation (default ON) must close beyond the signal bar high/low.
 
 | | Long Reversal | Short Reversal |
 |---|---|---|
@@ -30,14 +30,13 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | Trigger (step 2) | CLV veto: reject CLV < -ClvVetoThreshold (default 0.0 = close in the upper half); a strong close is NOT required | CLV veto: reject CLV > +ClvVetoThreshold (default 0.0 = close in the lower half); a weak close is NOT required |
 | TSI momentum gate | TSI >= SMA(5) of TSI (flat or rising) | TSI <= SMA(5) of TSI (flat or falling) |
 | Extension filter | Close <= EMA21 - `Min Extension From EMA` (1.5) ATR (0 = off) | Close >= EMA21 + `Min Extension From EMA` (1.5) ATR (0 = off) |
-| Trend filter | Close > SMA200 | Close < SMA200 |
-| Confirmation (optional, default off) | Next close > signal-bar High | Next close < signal-bar Low |
+| Confirmation (optional, default on) | Next close > signal-bar High | Next close < signal-bar Low |
 
 ### Continuation (ContinuationScanner)
 
 | | Long Continuation | Short Continuation |
 |---|---|---|
-| EMA21 touch | Latest bar Low <= EMA21 | Latest bar High >= EMA21 |
+| EMA21 touch | Signal bar Low <= EMA21 | Signal bar High >= EMA21 |
 | Trend alignment | EMA21 > EMA50 | EMA21 < EMA50 |
 | Trigger | Close > EMA21 (reclaim) | Close < EMA21 (breakdown) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
@@ -45,6 +44,7 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | Momentum regime | TSI > 0 | TSI < 0 |
 | TSI momentum gate | TSI >= SMA(5) of TSI (flat or rising) | TSI <= SMA(5) of TSI (flat or falling) |
 | Divergence suppression | No active bearish price/TSI divergence with the exact rolling ReversalScanner rule (fresh or near-extreme High with TSI at least `DivergenceMinTsiDrop` (3.0) below the reference extreme TSI, reference > +`DivergenceTsiExtremeLevel` (10)); parameters mirror the reversal thresholds | Mirrored for lows (fresh or near-extreme Low, TSI >= reference + 3.0, reference < -10) |
+| Confirmation (optional, default on) | Next close > signal-bar High | Next close < signal-bar Low |
 
 The continuation momentum gate is regime-only: the TSI zero line decides, and the TSI signal line (EMA 13 of TSI) is computed for display but is not part of the trigger. On top of the regime, the divergence suppression uses the **exact** ReversalScanner divergence detection (`ReversalEngine.HasActiveBearish/BullishTsiDivergence`): a fresh lookback extreme whose TSI diverges from the reference extreme kills the setup in that direction (bearish divergence suppresses longs, bullish divergence suppresses shorts), even when the symbol does not qualify for a reversal signal (e.g. price above SMA200). The TSI extreme gate (reference > +10 / < -10) keeps healthy trends from being suppressed by harmless lower-high lookbacks; `DivergenceTriggerWindow` 0 turns the suppression off. The `TrueStrengthIndex` indicator plots both lines so the regime can be checked visually.
 
@@ -52,9 +52,9 @@ The continuation momentum gate is regime-only: the TSI zero line decides, and th
 
 | Gate | Scope | Rule | On missing data |
 |---|---|---|---|
-| SPY benchmark (group 4) | US equities (`.US`) only | `BenchmarkBufferAtr` defaults to 0.5: longs are blocked only below SPY SMA50 - 0.5x SPY ATR; shorts only above SMA50 + 0.5x ATR. Inside the band both sides are allowed. Both scanners default it OFF: reversals are contrarian (the symbol's own SMA200 + TSI divergence supply the regime); continuations carry their own trend regime via EMA21/EMA50 alignment and the symbol SMA200, so a market-trend proxy only blocked strong leaders pulling back through a shallow market dip | Bypassed (both sides allowed) |
-| VIX long block (group 4b) | US equities only | Last completed VIX close > 25 blocks longs; shorts never blocked. Default ON on ContinuationScanner only; default OFF on ReversalScanner (capitulation longs coincide with high VIX — the symbol's own SMA200 + TSI divergence carry the reversal regime) | Bypassed |
-| Crypto benchmark (group 4c) | Configured crypto list only | Uses the same `BenchmarkBufferAtr` band: live BTC below BTC SMA50 - buffer blocks longs; above SMA50 + buffer blocks shorts; SMA/ATR use completed BTC daily bars. Default OFF on both scanners: the symbol's own SMA200/EMA/TSI regime carries the setup, so a BTC proxy only blocked alts showing relative strength/weakness independent of BTC | Bypassed |
+| SPY benchmark (group 4) | US equities (`.US`) only | `BenchmarkBufferAtr` defaults to 0.5: longs are blocked only below SPY SMA50 - 0.5x SPY ATR; shorts only above SMA50 + 0.5x ATR. Inside the band both sides are allowed. Both scanners default it OFF: reversals are contrarian (the symbol's own EMA extension + TSI divergence supply the regime); continuations carry their own trend regime via EMA21/EMA50 alignment and the symbol SMA200, so a market-trend proxy only blocked strong leaders pulling back through a shallow market dip | Bypassed (both sides allowed) |
+| VIX long block (group 4b) | US equities only | Last completed VIX close > 25 blocks longs; shorts never blocked. Default ON on ContinuationScanner only; default OFF on ReversalScanner (capitulation longs coincide with high VIX — the symbol's own EMA extension + TSI divergence carry the reversal regime) | Bypassed |
+| Crypto benchmark (group 4c) | Configured crypto list only | Uses the same `BenchmarkBufferAtr` band: live BTC below BTC SMA50 - buffer blocks longs; above SMA50 + buffer blocks shorts; SMA/ATR use completed BTC daily bars. Default OFF on both scanners: the symbol's own EMA/TSI regime carries the setup, so a BTC proxy only blocked alts showing relative strength/weakness independent of BTC | Bypassed |
 
 Crypto / FX / metals / commodities are exempt from the SPY and VIX gates by design. The crypto universe is a comma-separated parameter; spacing is ignored (`BTC EUR` matches `BTCEUR`).
 
@@ -75,7 +75,7 @@ A trigger uses the latest completed daily bar by default (`Max Setup Age = 0`). 
 - **Momentum intact**: a reversal long whose TSI no longer sits at least the minimum drop below its reference TSI (or a short above) is stale and is not reported; a continuation long whose TSI fell back below zero (or a short above zero) is stale and is not reported.
 - **Gates**: the completed VIX (long-block) regime is default ON on ContinuationScanner only; ReversalScanner defaults it OFF. The SPY-SMA50 and BTC-SMA gates are default OFF on both scanners (still available as parameters); when enabled, the crypto gate compares live BTC with an SMA of completed BTC bars.
 
-Both scanners evaluate only the latest completed daily bar. Continuations require that same bar to touch EMA21 and close with the required reclaim/breakdown conditions. Reversal confirmation, when enabled, uses the immediately following completed bar after the signal bar.
+Both scanners evaluate only the latest completed daily bar. With next-bar confirmation OFF, the signal bar is that latest completed bar itself (continuations require it to touch EMA21 and close with the required reclaim/breakdown conditions). With confirmation ON (the default on both scanners), the setup conditions sit on the signal bar one bar earlier and the latest completed bar is the confirmation bar, which must close beyond the signal-bar high (longs) / low (shorts); the alert then fires one daily bar later (entry still next open).
 
 ### Which bar is "the last completed bar"?
 

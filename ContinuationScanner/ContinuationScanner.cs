@@ -12,12 +12,12 @@ namespace cAlgo
     /// Continuation Scanner for the cTrader 2.0 suite (Daily bars, EOD signals, entry next open).
     ///
     /// Final continuation logic:
-    ///   Long Continuation: the latest completed bar touches Low &lt;= EMA21, then closes &gt; EMA21 with
+    ///   Long Continuation: the signal bar touches Low &lt;= EMA21, then closes &gt; EMA21 with
     ///     EMA21 &gt; EMA50, close in the upper half of the bar (CLV veto: reject CLV &lt; -ClvVetoThreshold,
     ///     default 0.0 = upper half; a strong close is NOT
     ///     required), TSI &gt; 0 (momentum regime) and TSI at or above its
     ///     TsiMomentumPeriod-bar average (momentum flat or rising). SPY gate optional (default off).
-    ///   Short Continuation: the latest completed bar touches High &gt;= EMA21, then closes &lt; EMA21 with
+    ///   Short Continuation: the signal bar touches High &gt;= EMA21, then closes &lt; EMA21 with
     ///     EMA21 &lt; EMA50, close in the lower half of the bar (CLV veto: reject CLV &gt; ClvVetoThreshold,
     ///     default 0.0 = lower half; a weak close is NOT
     ///     required), TSI &lt; 0 (momentum regime) and TSI at or below its rolling
@@ -30,6 +30,9 @@ namespace cAlgo
     /// for display only and is not part of the trigger. RSI is intentionally not used.
     /// Continuations additionally require the SMA200 long-term trend filter (Close > SMA200 for
     /// longs, Close < SMA200 for shorts).
+    ///
+    /// Next-bar confirmation is available and ON by default: the confirmation bar must close
+    /// beyond the signal bar's high (longs) / low (shorts).
     ///
     /// All conditions are evaluated on the close of the last completed daily bar (no repaint).
     /// Alert-only scanner: reports the setup only (no SL/PT computed). No trades placed. AccessRights = None.
@@ -119,6 +122,9 @@ namespace cAlgo
 
         [Parameter("TSI Momentum Average Period", Group = "3. Continuation Thresholds", DefaultValue = 5, MinValue = 0, MaxValue = 100)]
         public int TsiMomentumPeriod { get; set; } = 5;
+
+        [Parameter("Require Next-Bar Continuation Confirmation", Group = "3. Continuation Thresholds", DefaultValue = true)]
+        public bool RequireContinuationConfirmation { get; set; } = true;
 
         // =========================================================================
         // --- 4. Benchmark (SPY) Filter ---
@@ -302,8 +308,8 @@ namespace cAlgo
             Print($"[ContinuationScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
             Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod})/TrendEMA({TrendEmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}). (No RSI — TSI zero-line regime + reversal-style divergence suppression on the trigger bar; signal line display-only.)");
             Print($"[ContinuationScanner] Divergence suppression (same rolling rule as the ReversalScanner): lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {DivergenceTsiExtremeLevel:F1}, min TSI gap {DivergenceMinTsiDrop:F2}, trigger window {DivergenceTriggerWindow} bars (0 = off), near-extreme margin {DivergenceNearExtremeAtr:F1} ATR. TSI momentum gate: {(TsiMomentumPeriod > 1 ? $"TSI vs SMA{TsiMomentumPeriod} of TSI (flat or rising for longs, flat or falling for shorts)" : "OFF")}.");
-            Print($"[ContinuationScanner] Thresholds: CLV veto (longs reject CLV < -{ClvVetoThreshold:F2}, shorts reject CLV > {ClvVetoThreshold:F2}; 0 = close in the correct half; a strong/weak close is NOT required). No SL/PT computed (alert-only).");
-            Print($"[ContinuationScanner] Latest closed bar must touch EMA21 and reclaim/break it. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
+            Print($"[ContinuationScanner] Thresholds: CLV veto (longs reject CLV < -{ClvVetoThreshold:F2}, shorts reject CLV > {ClvVetoThreshold:F2}; 0 = close in the correct half; a strong/weak close is NOT required) | Next-bar confirmation {(RequireContinuationConfirmation ? "ON (confirmation close must exceed the signal-bar high/low)" : "OFF")}. No SL/PT computed (alert-only).");
+            Print($"[ContinuationScanner] Signal bar must touch EMA21 and reclaim/break it; with confirmation ON the latest closed bar is the confirmation bar. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
             Print($"[ContinuationScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ContinuationScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
             Print($"[ContinuationScanner] RS rank tag: {(ShowRsRankInAlerts ? $"ENABLED (score period {RsScorePeriod} bars, alert-only info, never excludes)" : "DISABLED")}.");
@@ -695,6 +701,7 @@ namespace cAlgo
                     ClvVetoThreshold,
                     DivergenceLookback, DivergenceMinGap, DivergenceTsiExtremeLevel, DivergenceMinTsiDrop, DivergenceNearExtremeAtr, DivergenceTriggerWindow,
                     TsiMomentumPeriod,
+                    RequireContinuationConfirmation,
                     spyLongForSymbol, spyShortForSymbol);
 
                 if (!res.IsTriggered)
@@ -814,6 +821,10 @@ namespace cAlgo
             if (double.IsNaN(livePrice) || livePrice <= 0)
                 livePrice = bars.ClosePrices[bars.Count - 1];
 
+            // With next-bar confirmation the trigger (EMA21 touch + reclaim) sits on the signal
+            // bar, one bar before the confirmation bar. The alert identity is the signal bar's open time.
+            int signalIdx = RequireContinuationConfirmation && triggerIdx > 0 ? triggerIdx - 1 : triggerIdx;
+
             return new ArmedContinuationSetup
             {
                 Symbol = symbolName,
@@ -822,8 +833,8 @@ namespace cAlgo
                 SwingHigh = res.SwingHigh,
                 SwingLow = res.SwingLow,
                 EmaTouchIndex = res.EmaTouchIndex,
-                TriggerIndex = triggerIdx,
-                SignalBarTime = bars.OpenTimes[triggerIdx],
+                TriggerIndex = signalIdx,
+                SignalBarTime = bars.OpenTimes[signalIdx],
                 Close = res.Close,
                 Clv = res.Clv,
                 Tsi = res.Tsi,
@@ -848,8 +859,8 @@ namespace cAlgo
 
             var sb = new StringBuilder();
             sb.AppendLine($"{dir} CONTINUATION SETUP — {symbolName} [{dateTag}]");
-            sb.AppendLine($"  Scanned {now:yyyy-MM-dd HH:mm} UTC | Signal bar opened {s.SignalBarTime:yyyy-MM-dd} = latest COMPLETED daily bar at scan time (the live/forming bar is never evaluated)");
-            sb.AppendLine($"  EMA21 touch and trigger bar #{s.TriggerIndex}");
+            sb.AppendLine($"  Scanned {now:yyyy-MM-dd HH:mm} UTC | Signal bar opened {s.SignalBarTime:yyyy-MM-dd} = the daily signal bar (with confirmation: the bar before the latest COMPLETED bar; the live/forming bar is never evaluated)");
+            sb.AppendLine($"  EMA21 touch and trigger bar #{s.TriggerIndex} | Confirmation: {(RequireContinuationConfirmation ? "next closed bar" : "OFF")}");
             sb.AppendLine($"  Close: {s.Close:F4} | CLV: {s.Clv:F2} | TSI: {s.Tsi:F2} (regime >0/<0; sig {s.TsiSig:F2} display-only)");
             sb.AppendLine($"  EMA21: {s.Ema50:F4} | SMA200: {s.Sma200:F4} | ATR: {s.Atr:F4} | Live: {s.LivePrice:F4}");
             sb.AppendLine($"  RS: {rsTag} vs watchlist (informational; rank within the symbol's asset bucket over {RsScorePeriod} bars)");
@@ -1278,7 +1289,7 @@ namespace cAlgo
             sb.AppendLine("=== CONTINUATION SCANNER (Daily, EOD signals, entry next open) ===");
             sb.AppendLine($"Watchlist: {WatchlistName} ({totalCount} symbols) | Trigger: {ScheduleMode} | Direction: {AllowedDirection}");
             sb.AppendLine($"EMA({EmaPeriod})/EMA({TrendEmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | No lookback | No RSI");
-            sb.AppendLine($"Thresholds: CLV veto {ClvVetoThreshold:F2} (abs) | No SL/PT");
+            sb.AppendLine($"Thresholds: CLV veto {ClvVetoThreshold:F2} (abs) | Confirmation {(RequireContinuationConfirmation ? "ON" : "OFF")} | No SL/PT");
             sb.AppendLine($"Benchmark: {spyStatus} | {_spyDetail}");
             sb.AppendLine($"VIX: {vixStatus} | {_vixDetail}");
             sb.AppendLine($"Crypto: {btcStatus} | {_btcDetail}");
