@@ -8,7 +8,7 @@ namespace cAlgo
     /// </summary>
     public readonly struct ContinuationSetupResult
     {
-        /// <summary>True when the trigger bar fired all conditions on this bar.</summary>
+        /// <summary>True when the signal bar fired all conditions and the optional next-bar confirmation passed.</summary>
         public readonly bool IsTriggered;
 
         /// <summary>Long, Short, or None.</summary>
@@ -23,13 +23,13 @@ namespace cAlgo
         /// <summary>Legacy swing low, unused when no structural lookback is configured.</summary>
         public readonly double SwingLow;
 
-        /// <summary>Index of the EMA21 touch bar, which is the trigger bar in the current logic.</summary>
+        /// <summary>Index of the EMA21 touch bar, which is the signal bar in the current logic.</summary>
         public readonly int EmaTouchIndex;
 
-        /// <summary>Index of the trigger bar being evaluated.</summary>
+        /// <summary>Index of the evaluation bar: the confirmation bar when confirmation is on, the signal bar itself otherwise.</summary>
         public readonly int TriggerIndex;
 
-        // Trigger-bar snapshot values (for alerting / HUD).
+        // Signal-bar snapshot values (for alerting / HUD).
         public readonly double Close;
         public readonly double High;
         public readonly double Low;
@@ -89,7 +89,7 @@ namespace cAlgo
     ///   plus the SMA200 long-term trend filter (continuations only).
     ///
     /// Long Continuation trigger on bar t:
-    ///   Low <= EMA21 on the trigger bar, then Close > EMA21, EMA21 > EMA50, Close > SMA200,
+    ///   Low <= EMA21 on the signal bar, then Close > EMA21, EMA21 > EMA50, Close > SMA200,
     ///   close in the upper half of the bar (CLV veto: reject CLV < -clvVetoThreshold, 0.0 =
     ///   exactly the half rule; a strong close is NOT required),
     ///   TSI > 0 (momentum regime), TSI >= SMA(tsiMomentumPeriod, TSI) on the trigger
@@ -98,7 +98,7 @@ namespace cAlgo
     ///   (default off).
     ///
     /// Short Continuation trigger on bar t:
-    ///   High >= EMA21 on the trigger bar, then Close < EMA21, EMA21 < EMA50, Close < SMA200,
+    ///   High >= EMA21 on the signal bar, then Close < EMA21, EMA21 < EMA50, Close < SMA200,
     ///   close in the lower half of the bar (CLV veto: reject CLV > clvVetoThreshold, 0.0 =
     ///   exactly the half rule; a weak close is NOT required),
     ///   TSI < 0 (momentum regime), TSI <= SMA(tsiMomentumPeriod, TSI) on the trigger
@@ -118,7 +118,7 @@ namespace cAlgo
     {
         /// <summary>
         /// Evaluates a Long Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
-        /// The trigger bar must touch EMA21 (Low <= EMA21) and close back above it. A bearish close
+        /// The signal bar must touch EMA21 (Low <= EMA21) and close back above it. A bearish close
         /// (CLV &lt; -clvVetoThreshold) is rejected; a strong close is not required.
         /// When <paramref name="requireConfirmation"/> is set, the signal bar is the previous bar
         /// and the confirmation bar must close above the signal-bar high.
@@ -156,7 +156,7 @@ namespace cAlgo
 
             if (double.IsNaN(tsiT) || double.IsNaN(tsiSigT) ||
                 double.IsNaN(ema) || double.IsNaN(slowEma) || double.IsNaN(sma) || double.IsNaN(atrT) || atrT <= 0.0 || double.IsNaN(clv))
-                return ContinuationSetupResult.Reject(ReversalDirection.Long, "Trigger-bar indicator NaN/invalid");
+                return ContinuationSetupResult.Reject(ReversalDirection.Long, "Signal-bar indicator NaN/invalid");
 
             if (!(close > ema))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
@@ -193,7 +193,7 @@ namespace cAlgo
 
         /// <summary>
         /// Evaluates a Short Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
-        /// Mirror of <see cref="EvaluateLongContinuation"/>: High >= EMA21 on the trigger bar,
+        /// Mirror of <see cref="EvaluateLongContinuation"/>: High >= EMA21 on the signal bar,
         /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, close in the lower half (CLV veto, reject CLV > clvVetoThreshold, 0.0 = lower half),
         /// TSI < 0. SPY gate optional (default off). When
         /// <paramref name="requireConfirmation"/> is set, the confirmation bar must close below
@@ -232,7 +232,7 @@ namespace cAlgo
 
             if (double.IsNaN(tsiT) || double.IsNaN(tsiSigT) ||
                 double.IsNaN(ema) || double.IsNaN(slowEma) || double.IsNaN(sma) || double.IsNaN(atrT) || atrT <= 0.0 || double.IsNaN(clv))
-                return ContinuationSetupResult.Reject(ReversalDirection.Short, "Trigger-bar indicator NaN/invalid");
+                return ContinuationSetupResult.Reject(ReversalDirection.Short, "Signal-bar indicator NaN/invalid");
 
             if (!(close < ema))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
