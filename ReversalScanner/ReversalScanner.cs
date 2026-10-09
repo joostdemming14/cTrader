@@ -16,18 +16,20 @@ namespace cAlgo
     ///     back) or a lower High within NearExtremeAtrMargin x ATR of it, with TSI at least 1.0 below
     ///     the TSI at the reference extreme (bearish divergence). The REFERENCE TSI must have been
     ///     &gt; +10 (a genuinely strong prior move; a bear-market rally from -30 to +10 qualifies); the
-    ///     new extreme's own TSI is unconstrained. Trigger: close in the lower half of the bar (CLV
-    ///     veto: reject CLV &gt; ClvVetoThreshold, default 0.0 = lower half; a weak close is NOT required)
-    ///     and TSI at or below its TsiMomentumPeriod-bar average (momentum flat or falling). SPY gate
+    ///     new extreme's own TSI is unconstrained. Trigger: when the CLV veto is on (default OFF)
+    ///     the close must sit in the lower half of the bar; the confirmation close beyond the
+    ///     signal-bar extreme is the decisive price-action check.
+    ///     TSI at or below its TsiMomentumPeriod-bar average (momentum flat or falling). SPY gate
     ///     optional (default off).
     ///   Long Reversal trigger: fresh rolling-window Low (or a higher Low within NearExtremeAtrMargin
     ///     x ATR of it) with TSI at least 1.0 above the reference extreme TSI (reference &lt; -10),
-    ///     no bearish close (CLV veto: reject CLV &lt; -ClvVetoThreshold, default 0.0 = close in the
-    ///     upper half; a strong close is NOT required) and TSI
+    ///     no bearish close required when the CLV veto is off (default OFF; when on: close in the
+    ///     upper half) and TSI
     ///     at or above its rolling average. SPY gate optional (default off).
     ///
     /// Two-step trigger: the divergence is detected on any bar in the last `TriggerWindow` bars
-    /// (including the signal bar itself), and the TRIGGER is the CLV veto plus the TSI momentum
+    /// (including the signal bar itself), and the TRIGGER is the optional CLV veto (default OFF)
+    /// plus the TSI momentum
     /// gate on the signal bar. Next-bar confirmation is available and ON by default. The TSI
     /// signal line is display only.
     ///
@@ -91,8 +93,8 @@ namespace cAlgo
         // =========================================================================
         // --- 3. Reversal Thresholds ---
         // =========================================================================
-        [Parameter("CLV Veto Threshold (abs, 0 = close in correct half)", Group = "3. Reversal Thresholds", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
-        public double ClvVetoThreshold { get; set; } = 0.0;
+        [Parameter("Require CLV Close Location Veto", Group = "3. Reversal Thresholds", DefaultValue = false)]
+        public bool RequireClvVeto { get; set; } = false;
 
         [Parameter("Divergence Lookback (bars)", Group = "3. Reversal Thresholds", DefaultValue = 90, MinValue = 5)]
         public int DivergenceLookback { get; set; } = 90;
@@ -306,7 +308,7 @@ namespace cAlgo
             Print($"[ReversalScanner] Started. Watchlist '{WatchlistName}' loaded with {_watchlistSymbols.Count} symbols.");
             Print($"[ReversalScanner] Schedule: {ScheduleMode} | Direction: {AllowedDirection} | TimeFrame: Daily (evaluates last completed closed bar).");
             Print($"[ReversalScanner] Indicators: EMA({EmaPeriod}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}). (No RSI — TSI divergence on the trigger bar; signal line display only.)");
-            Print($"[ReversalScanner] Thresholds: CLV veto (longs reject CLV < -{ClvVetoThreshold:F2}, shorts reject CLV > {ClvVetoThreshold:F2}; 0 = close in the correct half; a strong/weak close is NOT required) | Divergence: lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {TsiExtremeLevel:F1}, min divergence gap {MinTsiDivergenceDrop:F2} (bearish: TSI below reference by this much; bullish: above by this much), trigger window {TriggerWindow} bars, near-extreme margin {NearExtremeAtrMargin:F1} ATR | TSI momentum gate: {(TsiMomentumPeriod > 1 ? $"TSI vs SMA{TsiMomentumPeriod} of TSI (flat or rising for longs, flat or falling for shorts)" : "OFF")} | Extension filter {(MinExtensionPercentile > 0.0 ? $"top {100.0 - MinExtensionPercentile:F0}% EMA{EmaPeriod} gap over {ExtensionPercentileWindow} bars" : "OFF")} | Next-bar confirmation {(RequireReversalConfirmation ? "ON" : "OFF")}. No SL/PT computed (alert-only).");
+            Print($"[ReversalScanner] Thresholds: CLV close-location veto {(RequireClvVeto ? "ON (signal-bar close in the correct half)" : "OFF (confirmation candle decides)")} | Divergence: lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {TsiExtremeLevel:F1}, min divergence gap {MinTsiDivergenceDrop:F2} (bearish: TSI below reference by this much; bullish: above by this much), trigger window {TriggerWindow} bars, near-extreme margin {NearExtremeAtrMargin:F1} ATR | TSI momentum gate: {(TsiMomentumPeriod > 1 ? $"TSI vs SMA{TsiMomentumPeriod} of TSI (flat or rising for longs, flat or falling for shorts)" : "OFF")} | Extension filter {(MinExtensionPercentile > 0.0 ? $"top {100.0 - MinExtensionPercentile:F0}% EMA{EmaPeriod} gap over {ExtensionPercentileWindow} bars" : "OFF")} | Next-bar confirmation {(RequireReversalConfirmation ? "ON" : "OFF")}. No SL/PT computed (alert-only).");
             Print($"[ReversalScanner] Benchmark: {(RequireBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only scanner (no trade execution). Entry = next open.");
             Print($"[ReversalScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ReversalScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
@@ -694,7 +696,7 @@ namespace cAlgo
                 var res = ReversalEngine.Evaluate(closes, highs, lows, tsi.Tsi, tsi.TsiSig, snapshot.TsiAvg,
                     ema21, atr, evalIdx, AllowedDirection,
                     DivergenceLookback, DivergenceMinGap, TsiExtremeLevel, MinTsiDivergenceDrop, TriggerWindow,
-                    ClvVetoThreshold, NearExtremeAtrMargin,
+                    RequireClvVeto, NearExtremeAtrMargin,
                     TsiMomentumPeriod, MinExtensionPercentile, ExtensionPercentileWindow,
                     RequireReversalConfirmation,
                     spyLongForSymbol, spyShortForSymbol);
@@ -1269,7 +1271,7 @@ namespace cAlgo
             sb.AppendLine("=== REVERSAL SCANNER (Daily, EOD signals, entry next open) ===");
             sb.AppendLine($"Watchlist: {WatchlistName} ({totalCount} symbols) | Trigger: {ScheduleMode} | Direction: {AllowedDirection}");
             sb.AppendLine($"EMA({EmaPeriod}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}) | Divergence L{DivergenceLookback}/G{DivergenceMinGap} > {TsiExtremeLevel:F1} drop {MinTsiDivergenceDrop:F2} | Trigger window {TriggerWindow} bars | Extension {(MinExtensionPercentile > 0.0 ? $"top {100.0 - MinExtensionPercentile:F0}%/{ExtensionPercentileWindow}b" : "off")} | No RSI");
-            sb.AppendLine($"Thresholds: CLV veto {ClvVetoThreshold:F2} (abs) | Confirmation {(RequireReversalConfirmation ? "ON" : "OFF")} | No SL/PT");
+            sb.AppendLine($"Thresholds: CLV veto {(RequireClvVeto ? "ON" : "OFF")} | Confirmation {(RequireReversalConfirmation ? "ON" : "OFF")} | No SL/PT");
             sb.AppendLine($"Benchmark: {spyStatus} | {_spyDetail}");
             sb.AppendLine($"VIX: {vixStatus} | {_vixDetail}");
             sb.AppendLine($"Crypto: {btcStatus} | {_btcDetail}");
