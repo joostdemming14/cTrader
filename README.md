@@ -40,7 +40,7 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 | Trend alignment | EMA21 > EMA50 | EMA21 < EMA50 |
 | Trigger | Close > EMA21 (reclaim) | Close < EMA21 (breakdown) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
-| Close location | CLV veto: reject CLV < -ClvVetoThreshold (default 0.0 = close in the upper half); a strong close is NOT required | CLV veto: reject CLV > +ClvVetoThreshold (default 0.0 = close in the lower half); a weak close is NOT required |
+| Close location | Optional CLV veto (`Require CLV Close Location Veto`, default OFF - the confirmation close beyond the signal-bar high/low is the decisive price-action check) | Mirrored |
 | Momentum regime | TSI > 0 | TSI < 0 |
 | TSI momentum gate | TSI >= SMA(5) of TSI (flat or rising) | TSI <= SMA(5) of TSI (flat or falling) |
 | Divergence suppression | No active bearish price/TSI divergence with the exact rolling ReversalScanner rule (fresh or near-extreme High with TSI at least `DivergenceMinTsiDrop` (3.0) below the reference extreme TSI, reference > +`DivergenceTsiExtremeLevel` (10)); parameters mirror the reversal thresholds | Mirrored for lows (fresh or near-extreme Low, TSI >= reference + 3.0, reference < -10) |
