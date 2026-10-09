@@ -194,16 +194,18 @@ namespace cAlgo
     ///   2. TRIGGER: the signal bar closes in the correct half (CLV veto: longs reject
     ///      CLV < -clvVetoThreshold, shorts CLV > +clvVetoThreshold; 0.0 = exactly the half rule) and its TSI sits at or
     ///      below the rolling TSI average (momentum flat or falling; `tsiMomentumPeriod`). When
-    ///      `minExtensionAtr` > 0 the close must also sit at least that many ATR above EMA21
-    ///      (extended-move filter; 0 disables it).
+    ///      `minExtensionPercentile` > 0 the close's EMA21 gap (in ATR) must rank in the most
+    ///      extreme (100 - minExtensionPercentile)% of the last `extensionWindow` bars
+    ///      (extension filter; 0 disables it).
     ///      The divergence bar and the trigger bar may be the same bar. Gates
     ///      still apply.
     ///
     /// Long Reversal is the mirror: fresh or near-extreme (higher low within `nearExtremeAtr`
     /// ATR) rolling-window Low with TSI[d] >= TSI[reference] + minTsiDrop and reference
     /// TSI < -tsiLevel, then the CLV veto (no bearish close) with TSI at or above its
-    /// rolling average; when `minExtensionAtr` > 0 the close must sit at least that many ATR
-    /// below EMA21 (extended-move filter; 0 disables it). Newer, deeper lows re-anchor the divergence chain to the newest
+    /// rolling average; when `minExtensionPercentile` > 0 the close's EMA21 gap (in ATR) must
+    /// rank in the most extreme (100 - minExtensionPercentile)% of the last `extensionWindow`
+    /// bars (extension filter; 0 disables it). Newer, deeper lows re-anchor the divergence chain to the newest
     /// extreme while the TSI keeps stepping up vs the previous extreme; the setup only dies
     /// when momentum deteriorates at a newer extreme.
     ///
@@ -413,8 +415,9 @@ namespace cAlgo
         /// Step 2 — the trigger: the signal bar must not close against the setup — a bullish
         /// close (CLV &gt; +clvVetoThreshold) is rejected; any other close passes. When
         /// <paramref name="tsiMomentumPeriod"/> &gt; 1, its TSI sits at or below the rolling TSI average
-        /// (momentum flat or falling). When <paramref name="minExtensionAtr"/> &gt; 0, the signal-bar
-        /// close must also sit at least that many ATR above EMA21 (the move is genuinely extended,
+        /// (momentum flat or falling). When <paramref name="minExtensionPercentile"/> &gt; 0, the
+        /// signal bar's EMA21 gap (in ATR) must rank in the most extreme (100 - that)% of the last
+        /// <paramref name="extensionWindow"/> bars (the move is genuinely extended for this symbol,
         /// not a shallow drift). The divergence bar and the trigger bar may be the same bar.
         /// <paramref name="spyShortOk"/> applies.
         /// </summary>
@@ -426,7 +429,7 @@ namespace cAlgo
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
             double clvVetoThreshold, double nearExtremeAtr,
             int tsiMomentumPeriod,
-            double minExtensionAtr,
+            double minExtensionPercentile, int extensionWindow,
             bool requireConfirmation, bool spyShortOk)
         {
             if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, atr, evalIndex) ||
@@ -469,9 +472,16 @@ namespace cAlgo
             if (tsiMomentumPeriod > 1 && !PassesShortMomentumGate(tsi, tsiAvg, signal, tsiMomentumPeriod))
                 return ReversalSetupResult.Reject(ReversalDirection.Short,
                     $"TSI {tsi[signal]:F2} not <= {tsiAvg[signal]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/falling)");
-            if (minExtensionAtr > 0.0 && !(close >= ema + minExtensionAtr * atrT))
-                return ReversalSetupResult.Reject(ReversalDirection.Short,
-                    $"Close {close:F4} not >= EMA21 {ema:F4} + {minExtensionAtr:F1} x ATR {atrT:F4} (extension filter: short needs an extended move)");
+            if (minExtensionPercentile > 0.0)
+            {
+                double gapPct = ExtensionPercentile(closes, ema21, atr, signal, extensionWindow, false);
+                if (double.IsNaN(gapPct))
+                    return ReversalSetupResult.Reject(ReversalDirection.Short,
+                        $"EMA21 gap percentile unavailable over the last {extensionWindow} bars (extension filter: not enough history)");
+                if (gapPct < minExtensionPercentile)
+                    return ReversalSetupResult.Reject(ReversalDirection.Short,
+                        $"EMA21 gap percentile {gapPct:F1}% below the {minExtensionPercentile:F0}% threshold over the last {extensionWindow} bars (extension filter: short needs a genuinely extended move)");
+            }
             if (requireConfirmation && !(closes[t] < lows[signal]))
                 return ReversalSetupResult.Reject(ReversalDirection.Short,
                     $"Confirmation close {closes[t]:F4} not < signal-bar low {lows[signal]:F4}");
@@ -495,8 +505,9 @@ namespace cAlgo
         /// a bearish close (CLV &lt; -clvVetoThreshold) is rejected, any other close passes, and, when
         /// <paramref name="tsiMomentumPeriod"/> &gt; 1, its TSI must sit at
         /// or above the rolling TSI average (momentum flat or rising). When
-        /// <paramref name="minExtensionAtr"/> &gt; 0, the signal-bar close must also sit at least that
-        /// many ATR below EMA21 (the move is genuinely extended, not a shallow drift); it may be the
+        /// <paramref name="minExtensionPercentile"/> &gt; 0, the signal bar's EMA21 gap (in ATR) must
+        /// rank in the most extreme (100 - that)% of the last <paramref name="extensionWindow"/> bars
+        /// (the move is genuinely extended for this symbol, not a shallow drift); it may be the
         /// divergence bar itself.
         /// </summary>
         public static ReversalSetupResult EvaluateLongReversal(
@@ -507,7 +518,7 @@ namespace cAlgo
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
             double clvVetoThreshold, double nearExtremeAtr,
             int tsiMomentumPeriod,
-            double minExtensionAtr,
+            double minExtensionPercentile, int extensionWindow,
             bool requireConfirmation, bool spyLongOk)
         {
             if (IsBadInput(closes, highs, lows, tsi, tsiSig, ema21, atr, evalIndex) ||
@@ -550,9 +561,16 @@ namespace cAlgo
             if (tsiMomentumPeriod > 1 && !PassesLongMomentumGate(tsi, tsiAvg, signal, tsiMomentumPeriod))
                 return ReversalSetupResult.Reject(ReversalDirection.Long,
                     $"TSI {tsi[signal]:F2} not >= {tsiAvg[signal]:F2} ({tsiMomentumPeriod}-bar avg; momentum not flat/rising)");
-            if (minExtensionAtr > 0.0 && !(close <= ema - minExtensionAtr * atrT))
-                return ReversalSetupResult.Reject(ReversalDirection.Long,
-                    $"Close {close:F4} not <= EMA21 {ema:F4} - {minExtensionAtr:F1} x ATR {atrT:F4} (extension filter: long needs an extended move)");
+            if (minExtensionPercentile > 0.0)
+            {
+                double gapPct = ExtensionPercentile(closes, ema21, atr, signal, extensionWindow, true);
+                if (double.IsNaN(gapPct))
+                    return ReversalSetupResult.Reject(ReversalDirection.Long,
+                        $"EMA21 gap percentile unavailable over the last {extensionWindow} bars (extension filter: not enough history)");
+                if (gapPct < minExtensionPercentile)
+                    return ReversalSetupResult.Reject(ReversalDirection.Long,
+                        $"EMA21 gap percentile {gapPct:F1}% below the {minExtensionPercentile:F0}% threshold over the last {extensionWindow} bars (extension filter: long needs a genuinely extended move)");
+            }
             if (requireConfirmation && !(closes[t] > highs[signal]))
                 return ReversalSetupResult.Reject(ReversalDirection.Long,
                     $"Confirmation close {closes[t]:F4} not > signal-bar high {highs[signal]:F4}");
@@ -582,7 +600,7 @@ namespace cAlgo
             int lookback, int minGap, double tsiLevel, double minTsiDrop, int triggerWindow,
             double clvVetoThreshold, double nearExtremeAtr,
             int tsiMomentumPeriod,
-            double minExtensionAtr,
+            double minExtensionPercentile, int extensionWindow,
             bool requireConfirmation,
             bool spyLongOk, bool spyShortOk)
         {
@@ -592,7 +610,7 @@ namespace cAlgo
             {
                 var lon = EvaluateLongReversal(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, atr,
                     evalIndex, lookback, minGap, tsiLevel, minTsiDrop, triggerWindow, clvVetoThreshold, nearExtremeAtr,
-                    tsiMomentumPeriod, minExtensionAtr,
+                    tsiMomentumPeriod, minExtensionPercentile, extensionWindow,
                     requireConfirmation, spyLongOk);
                 if (lon.IsTriggered) return lon;
                 if (direction == ReversalScanDirection.LongOnly) return lon;
@@ -603,7 +621,7 @@ namespace cAlgo
             {
                 var sh = EvaluateShortReversal(closes, highs, lows, tsi, tsiSig, tsiAvg, ema21, atr,
                     evalIndex, lookback, minGap, tsiLevel, minTsiDrop, triggerWindow, clvVetoThreshold, nearExtremeAtr,
-                    tsiMomentumPeriod, minExtensionAtr,
+                    tsiMomentumPeriod, minExtensionPercentile, extensionWindow,
                     requireConfirmation, spyShortOk);
                 if (sh.IsTriggered) return sh;
                 res = sh;
@@ -1125,6 +1143,38 @@ namespace cAlgo
             double t = tsi[bar], a = tsiAvg[bar];
             if (double.IsNaN(t) || double.IsNaN(a)) return false;
             return t >= a;
+        }
+
+        /// <summary>
+        /// Percentile rank (0..100) of the evaluated bar's EMA21 gap, in ATR units, within the last
+        /// <paramref name="window"/> bars (fewer when history is shorter). Longs rank (EMA21 - Close)/ATR,
+        /// shorts (Close - EMA21)/ATR, so 100 means the bar is the most extended of the window in the
+        /// setup's direction. Bars with NaN indicators are skipped; ties do not count as below
+        /// (conservative); returns NaN when fewer than 30 valid bars remain.
+        /// </summary>
+        public static double ExtensionPercentile(IReadOnlyList<double> closes, IReadOnlyList<double> ema21,
+            IReadOnlyList<double> atr, int bar, int window, bool isLong)
+        {
+            if (closes == null || ema21 == null || atr == null || bar < 0 || bar >= closes.Count ||
+                ema21.Count != closes.Count || atr.Count != closes.Count || window < 2)
+                return double.NaN;
+
+            double cb = closes[bar], eb = ema21[bar], ab = atr[bar];
+            if (double.IsNaN(cb) || double.IsNaN(eb) || double.IsNaN(ab) || ab <= 0.0) return double.NaN;
+            double cur = isLong ? (eb - cb) / ab : (cb - eb) / ab;
+
+            int start = Math.Max(0, bar - window + 1);
+            int valid = 1, below = 0;
+            for (int i = start; i < bar; i++)
+            {
+                double c = closes[i], e = ema21[i], a = atr[i];
+                if (double.IsNaN(c) || double.IsNaN(e) || double.IsNaN(a) || a <= 0.0) continue;
+                double gap = isLong ? (e - c) / a : (c - e) / a;
+                valid++;
+                if (gap < cur) below++;
+            }
+            if (valid < 30) return double.NaN;
+            return 100.0 * below / (valid - 1);
         }
 
         // =========================================================================
