@@ -12,13 +12,15 @@ namespace cAlgo
     /// Continuation Scanner for the cTrader 2.0 suite (Daily bars, EOD signals, entry next open).
     ///
     /// Final continuation logic:
-    ///   Long Continuation: the signal bar touches Low &lt;= EMA21, then closes &gt; EMA21 with
-    ///     EMA21 &gt; EMA50, close in the upper half of the bar when the CLV veto is on
+    ///   Long Continuation: the signal bar touches Low &lt;= EMA21; the EMA21 reclaim sits on
+    ///     the signal bar without confirmation, on the confirmation bar with it (together with
+    ///     the close beyond the signal-bar high). EMA21 &gt; EMA50, close in the upper half of the bar when the CLV veto is on
     ///     (default OFF - the confirmation close beyond the signal-bar high/low is the decisive
     ///     price-action check), TSI &gt; 0 (momentum regime) and TSI at or above its
     ///     TsiMomentumPeriod-bar average (momentum flat or rising). SPY gate optional (default off).
-    ///   Short Continuation: the signal bar touches High &gt;= EMA21, then closes &lt; EMA21 with
-    ///     EMA21 &lt; EMA50, close in the lower half of the bar when the CLV veto is on
+    ///   Short Continuation: the signal bar touches High &gt;= EMA21; the EMA21 breakdown sits
+    ///     on the signal bar without confirmation, on the confirmation bar with it (together with
+    ///     the close beyond the signal-bar low). EMA21 &lt; EMA50, close in the lower half of the bar when the CLV veto is on
     ///     (default OFF), TSI &lt; 0 (momentum regime) and TSI at or below its rolling
     ///     average (momentum flat or falling). SPY gate optional (default off).
     ///
@@ -308,7 +310,7 @@ namespace cAlgo
             Print($"[ContinuationScanner] Indicators: EMA({EmaPeriod})/TrendEMA({TrendEmaPeriod}) | SMA({Sma200Period}) | ATR({AtrPeriod}) | TSI({TsiLongPeriod},{TsiShortPeriod},{TsiSignalPeriod}). (No RSI — TSI zero-line regime + reversal-style divergence suppression on the trigger bar; signal line display-only.)");
             Print($"[ContinuationScanner] Divergence suppression (same rolling rule as the ReversalScanner): lookback {DivergenceLookback}, min gap {DivergenceMinGap}, TSI extreme > {DivergenceTsiExtremeLevel:F1}, min TSI gap {DivergenceMinTsiDrop:F2}, trigger window {DivergenceTriggerWindow} bars (0 = off), near-extreme margin {DivergenceNearExtremeAtr:F1} ATR. TSI momentum gate: {(TsiMomentumPeriod > 1 ? $"TSI vs SMA{TsiMomentumPeriod} of TSI (flat or rising for longs, flat or falling for shorts)" : "OFF")}.");
             Print($"[ContinuationScanner] Thresholds: CLV close-location veto {(RequireClvVeto ? "ON (signal-bar close in the correct half)" : "OFF (confirmation candle decides)")} | Next-bar confirmation {(RequireContinuationConfirmation ? "ON (confirmation close must exceed the signal-bar high/low)" : "OFF")}. No SL/PT computed (alert-only).");
-            Print($"[ContinuationScanner] Signal bar must touch EMA21 and reclaim/break it; with confirmation ON the latest closed bar is the confirmation bar. Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
+            Print($"[ContinuationScanner] Signal bar must touch EMA21; the reclaim/break sits on the signal bar without confirmation and on the confirmation bar with it (plus the close beyond the signal-bar high/low). Benchmark: {(RequireBenchmarkFilter ? $"ENABLED ('{_resolvedBenchmarkSymbol}', SMA{BenchmarkSmaPeriod}, US equities only)" : "DISABLED")}. Alert-only (entry = next open).");
             Print($"[ContinuationScanner] VIX Long Block: {(RequireVixFilter ? $"ENABLED (Symbol='{_resolvedVixSymbol}', Threshold > {MaxVixThreshold:F1}, US equities only, shorts unaffected)" : "DISABLED")}.");
             Print($"[ContinuationScanner] Crypto benchmark: {(RequireCryptoBenchmarkFilter ? $"ENABLED (Symbol='{_resolvedCryptoBenchmarkSymbol}', SMA{CryptoBenchmarkSmaPeriod}, {_cryptoSymbols.Count} crypto symbols; longs need BTC > SMA, shorts need BTC < SMA)" : "DISABLED")}.");
             Print($"[ContinuationScanner] RS rank tag: {(ShowRsRankInAlerts ? $"ENABLED (score period {RsScorePeriod} bars, alert-only info, never excludes)" : "DISABLED")}.");

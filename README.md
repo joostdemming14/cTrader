@@ -38,13 +38,13 @@ Two-step trigger. Step 1 — divergence detection (no pivot-confirmation lag): a
 |---|---|---|
 | EMA21 touch | Signal bar Low <= EMA21 | Signal bar High >= EMA21 |
 | Trend alignment | EMA21 > EMA50 | EMA21 < EMA50 |
-| Trigger | Close > EMA21 (reclaim) | Close < EMA21 (breakdown) |
+| Trigger | EMA21 reclaim: on the signal bar without confirmation, on the confirmation bar when confirmation is on | Mirrored (breakdown) |
 | Trend filter | Close > SMA200 | Close < SMA200 |
 | Close location | Optional CLV veto (`Require CLV Close Location Veto`, default OFF - the confirmation close beyond the signal-bar high/low is the decisive price-action check) | Mirrored |
 | Momentum regime | TSI > 0 | TSI < 0 |
 | TSI momentum gate | TSI >= SMA(5) of TSI (flat or rising) | TSI <= SMA(5) of TSI (flat or falling) |
 | Divergence suppression | No active bearish price/TSI divergence with the exact rolling ReversalScanner rule (fresh or near-extreme High with TSI at least `DivergenceMinTsiDrop` (3.0) below the reference extreme TSI, reference > +`DivergenceTsiExtremeLevel` (10)); parameters mirror the reversal thresholds | Mirrored for lows (fresh or near-extreme Low, TSI >= reference + 3.0, reference < -10) |
-| Confirmation (optional, default on) | Next close > signal-bar High | Next close < signal-bar Low |
+| Confirmation (optional, default on) | Next close > signal-bar High and > EMA21 | Next close < signal-bar Low and < EMA21 |
 
 The continuation momentum gate is regime-only: the TSI zero line decides, and the TSI signal line (EMA 13 of TSI) is computed for display but is not part of the trigger. On top of the regime, the divergence suppression uses the **exact** ReversalScanner divergence detection (`ReversalEngine.HasActiveBearish/BullishTsiDivergence`): a fresh lookback extreme whose TSI diverges from the reference extreme kills the setup in that direction (bearish divergence suppresses longs, bullish divergence suppresses shorts), even when the symbol does not qualify for a reversal signal (e.g. price above SMA200). The TSI extreme gate (reference > +10 / < -10) keeps healthy trends from being suppressed by harmless lower-high lookbacks; `DivergenceTriggerWindow` 0 turns the suppression off. The `TrueStrengthIndex` indicator plots both lines so the regime can be checked visually.
 

@@ -89,7 +89,8 @@ namespace cAlgo
     ///   plus the SMA200 long-term trend filter (continuations only).
     ///
     /// Long Continuation trigger on bar t:
-    ///   Low <= EMA21 on the signal bar, then Close > EMA21, EMA21 > EMA50, Close > SMA200,
+    ///   Low <= EMA21 on the signal bar, EMA21 > EMA50, Close > SMA200 (the EMA21 reclaim
+    ///   sits on the signal bar without confirmation, on the confirmation bar with it),
     ///   close in the upper half of the bar when the CLV veto is on (default OFF — the
     ///   confirmation close beyond the signal-bar high is the decisive price-action check),
     ///   TSI > 0 (momentum regime), TSI >= SMA(tsiMomentumPeriod, TSI) on the trigger
@@ -98,7 +99,8 @@ namespace cAlgo
     ///   (default off).
     ///
     /// Short Continuation trigger on bar t:
-    ///   High >= EMA21 on the signal bar, then Close < EMA21, EMA21 < EMA50, Close < SMA200,
+    ///   High >= EMA21 on the signal bar, EMA21 < EMA50, Close < SMA200 (the EMA21 breakdown
+    ///   sits on the signal bar without confirmation, on the confirmation bar with it),
     ///   close in the lower half of the bar when the CLV veto is on (default OFF — the
     ///   confirmation close beyond the signal-bar low is the decisive price-action check),
     ///   TSI < 0 (momentum regime), TSI <= SMA(tsiMomentumPeriod, TSI) on the trigger
@@ -118,10 +120,10 @@ namespace cAlgo
     {
         /// <summary>
         /// Evaluates a Long Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
-        /// The signal bar must touch EMA21 (Low <= EMA21) and close back above it. When
-        /// <paramref name="requireClvVeto"/> is on, a bearish close (CLV &lt; 0) is rejected.
-        /// When <paramref name="requireConfirmation"/> is set, the signal bar is the previous bar
-        /// and the confirmation bar must close above the signal-bar high.
+        /// The signal bar must touch EMA21 (Low <= EMA21). Without confirmation it must also
+        /// close back above EMA21; with confirmation the confirmation bar must close above both
+        /// the signal-bar high and EMA21. When <paramref name="requireClvVeto"/> is on, a bearish
+        /// close (CLV &lt; 0) is rejected.
         /// </summary>
         public static ContinuationSetupResult EvaluateLongContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
@@ -158,7 +160,7 @@ namespace cAlgo
                 double.IsNaN(ema) || double.IsNaN(slowEma) || double.IsNaN(sma) || double.IsNaN(atrT) || atrT <= 0.0 || double.IsNaN(clv))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long, "Signal-bar indicator NaN/invalid");
 
-            if (!(close > ema))
+            if (!requireConfirmation && !(close > ema))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"Close {close:F4} not > EMA21 {ema:F4} (no reclaim)");
             if (!(ema > slowEma))
@@ -179,6 +181,9 @@ namespace cAlgo
             if (divergenceTriggerWindow > 0 && ReversalEngine.HasActiveBearishTsiDivergence(highs, tsi, atr, signal, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"Active bearish price/TSI divergence (fresh high with lower TSI) over the last {divergenceTriggerWindow} bars");
+            if (requireConfirmation && !(closes[t] > ema21[t]))
+                return ContinuationSetupResult.Reject(ReversalDirection.Long,
+                    $"Confirmation close {closes[t]:F4} not > EMA21 {ema21[t]:F4} (no reclaim on the confirmation bar)");
             if (requireConfirmation && !(closes[t] > highs[signal]))
                 return ContinuationSetupResult.Reject(ReversalDirection.Long,
                     $"Confirmation close {closes[t]:F4} not > signal-bar high {highs[signal]:F4}");
@@ -194,11 +199,10 @@ namespace cAlgo
         /// <summary>
         /// Evaluates a Short Continuation setup at <paramref name="evalIndex"/> (the trigger candidate bar).
         /// Mirror of <see cref="EvaluateLongContinuation"/>: High >= EMA21 on the signal bar,
-        /// trigger Close < EMA21, EMA21 < EMA50, Close < SMA200, close in the lower half when
-        /// <paramref name="requireClvVeto"/> is on (default OFF),
-        /// TSI < 0. SPY gate optional (default off). When
-        /// <paramref name="requireConfirmation"/> is set, the confirmation bar must close below
-        /// the signal-bar low.
+        /// EMA21 < EMA50, Close < SMA200, close in the lower half when
+        /// <paramref name="requireClvVeto"/> is on (default OFF), TSI < 0. Without confirmation
+        /// the signal bar must close below EMA21; with confirmation the confirmation bar must
+        /// close below both the signal-bar low and EMA21.
         /// </summary>
         public static ContinuationSetupResult EvaluateShortContinuation(
             IReadOnlyList<double> closes, IReadOnlyList<double> highs, IReadOnlyList<double> lows,
@@ -235,7 +239,7 @@ namespace cAlgo
                 double.IsNaN(ema) || double.IsNaN(slowEma) || double.IsNaN(sma) || double.IsNaN(atrT) || atrT <= 0.0 || double.IsNaN(clv))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short, "Signal-bar indicator NaN/invalid");
 
-            if (!(close < ema))
+            if (!requireConfirmation && !(close < ema))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"Close {close:F4} not < EMA21 {ema:F4} (no breakdown)");
             if (!(ema < slowEma))
@@ -256,6 +260,9 @@ namespace cAlgo
             if (divergenceTriggerWindow > 0 && ReversalEngine.HasActiveBullishTsiDivergence(lows, tsi, atr, signal, divergenceLookback, divergenceMinGap, divergenceTsiLevel, divergenceMinTsiDrop, divergenceNearExtremeAtr, divergenceTriggerWindow))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"Active bullish price/TSI divergence (fresh low with higher TSI) over the last {divergenceTriggerWindow} bars");
+            if (requireConfirmation && !(closes[t] < ema21[t]))
+                return ContinuationSetupResult.Reject(ReversalDirection.Short,
+                    $"Confirmation close {closes[t]:F4} not < EMA21 {ema21[t]:F4} (no breakdown on the confirmation bar)");
             if (requireConfirmation && !(closes[t] < lows[signal]))
                 return ContinuationSetupResult.Reject(ReversalDirection.Short,
                     $"Confirmation close {closes[t]:F4} not < signal-bar low {lows[signal]:F4}");
