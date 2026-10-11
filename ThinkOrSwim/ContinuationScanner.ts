@@ -147,14 +147,24 @@ def lastClosed = if assumeMarketClosed then 0 else 1;
 def sig = if requireConfirmation then lastClosed + 1 else lastClosed;
 
 def div0 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 0, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
-def div1 = if divergenceTriggerWindow >= 1 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 1, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div0;
-def div2 = if divergenceTriggerWindow >= 2 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 2, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div1;
-def div3 = if divergenceTriggerWindow >= 3 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 3, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div2;
-def div4 = if divergenceTriggerWindow >= 4 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 4, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div3;
-def div5 = if divergenceTriggerWindow >= 5 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 5, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div4;
+def div1 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 1, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
+def div2 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 2, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
+def div3 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 3, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
+def div4 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 4, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
+def div5 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = sig + 5, sig = sig, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
 
-def bearDivActive = div0.bear or div1.bear or div2.bear or div3.bear or div4.bear or div5.bear;
-def bullDivActive = div0.bull or div1.bull or div2.bull or div3.bull or div4.bull or div5.bull;
+def bearDivActive = div0.bear
+    or (divergenceTriggerWindow >= 1 and div1.bear)
+    or (divergenceTriggerWindow >= 2 and div2.bear)
+    or (divergenceTriggerWindow >= 3 and div3.bear)
+    or (divergenceTriggerWindow >= 4 and div4.bear)
+    or (divergenceTriggerWindow >= 5 and div5.bear);
+def bullDivActive = div0.bull
+    or (divergenceTriggerWindow >= 1 and div1.bull)
+    or (divergenceTriggerWindow >= 2 and div2.bull)
+    or (divergenceTriggerWindow >= 3 and div3.bull)
+    or (divergenceTriggerWindow >= 4 and div4.bull)
+    or (divergenceTriggerWindow >= 5 and div5.bull);
 
 # ---------------- gates (computed once per pass in cTrader) ----------------
 def vixClose = close("VIX");
@@ -169,39 +179,50 @@ def spyShortOk = !requireBenchmarkFilter or spyClose <= spySma + spyBuffer;
 
 
 # ---------------- optional relative-volume filter (confirmation bar) ----------------
-def rvol = volume[lastClosed] / Average(volume, rvolPeriod)[lastClosed];
+# GetValue is required: thinkScript [] only accepts constant offsets.
+def rvol = GetValue(volume, lastClosed) / GetValue(Average(volume, rvolPeriod), lastClosed);
 def rvolOk = !requireRvolFilter or (!IsNaN(rvol) and rvol >= minRvol);
 
 # ---------------- continuation evaluation at the signal bar ----------------
-def warm = !IsNaN(tsi[sig]) and !IsNaN(ema21[sig]) and !IsNaN(ema50[sig]) and !IsNaN(sma200[sig]) and !IsNaN(atr[sig]) and atr[sig] > 0;
+def tsiS = GetValue(tsi, sig);
+def ema21S = GetValue(ema21, sig);
+def ema50S = GetValue(ema50, sig);
+def sma200S = GetValue(sma200, sig);
+def atrS = GetValue(atr, sig);
+def clvS = GetValue(clv, sig);
+def tsiAvgS = GetValue(tsiAvg, sig);
+def lowS = GetValue(low, sig);
+def highS = GetValue(high, sig);
+def closeS = GetValue(close, sig);
+def warm = !IsNaN(tsiS) and !IsNaN(ema21S) and !IsNaN(ema50S) and !IsNaN(sma200S) and !IsNaN(atrS) and atrS > 0;
 
 def longCore =
     warm
-    and low[sig] <= ema21[sig]
-    and ema21[sig] > ema50[sig]
-    and close[sig] > sma200[sig]
-    and (!requireClvVeto or clv[sig] >= 0)
-    and tsi[sig] > 0
-    and (tsiMomentumPeriod <= 1 or tsi[sig] >= tsiAvg[sig])
+    and lowS <= ema21S
+    and ema21S > ema50S
+    and closeS > sma200S
+    and (!requireClvVeto or clvS >= 0)
+    and tsiS > 0
+    and (tsiMomentumPeriod <= 1 or tsiS >= tsiAvgS)
     and !bearDivActive
     and vixLongOk
     and spyLongOk
-    and (!requireConfirmation or close[sig] > ema21[sig]);
+    and (!requireConfirmation or closeS > ema21S);
 
 def shortCore =
     warm
-    and high[sig] >= ema21[sig]
-    and ema21[sig] < ema50[sig]
-    and close[sig] < sma200[sig]
-    and (!requireClvVeto or clv[sig] <= 0)
-    and tsi[sig] < 0
-    and (tsiMomentumPeriod <= 1 or tsi[sig] <= tsiAvg[sig])
+    and highS >= ema21S
+    and ema21S < ema50S
+    and closeS < sma200S
+    and (!requireClvVeto or clvS <= 0)
+    and tsiS < 0
+    and (tsiMomentumPeriod <= 1 or tsiS <= tsiAvgS)
     and !bullDivActive
     and spyShortOk
-    and (!requireConfirmation or close[sig] < ema21[sig]);
+    and (!requireConfirmation or closeS < ema21S);
 
-def longConfirm = !requireConfirmation or (close[lastClosed] > ema21[lastClosed] and close[lastClosed] > high[sig]);
-def shortConfirm = !requireConfirmation or (close[lastClosed] < ema21[lastClosed] and close[lastClosed] < low[sig]);
+def longConfirm = !requireConfirmation or (GetValue(close, lastClosed) > GetValue(ema21, lastClosed) and GetValue(close, lastClosed) > highS);
+def shortConfirm = !requireConfirmation or (GetValue(close, lastClosed) < GetValue(ema21, lastClosed) and GetValue(close, lastClosed) < lowS);
 
 plot LongSignal = longCore and longConfirm and rvolOk;
 plot ShortSignal = shortCore and shortConfirm and rvolOk;

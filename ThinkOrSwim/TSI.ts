@@ -87,14 +87,24 @@ script TsiDivergence {
 }
 
 def div0 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 0, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
-def div1 = if divergenceTriggerWindow >= 1 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 1, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div0;
-def div2 = if divergenceTriggerWindow >= 2 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 2, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div1;
-def div3 = if divergenceTriggerWindow >= 3 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 3, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div2;
-def div4 = if divergenceTriggerWindow >= 4 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 4, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div3;
-def div5 = if divergenceTriggerWindow >= 5 then TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 5, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr) else div4;
+def div1 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 1, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
+def div2 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 2, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
+def div3 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 3, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
+def div4 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 4, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
+def div5 = TsiDivergence(h = high, l = low, t = tsi, atrS = atr, c = 5, sig = 0, lookback = divergenceLookback, minGap = divergenceMinGap, tsiLevel = divergenceTsiExtremeLevel, minDrop = divergenceMinTsiDrop, nearAtr = divergenceNearExtremeAtr);
 
-def bearDivActive = div0.bear or div1.bear or div2.bear or div3.bear or div4.bear or div5.bear;
-def bullDivActive = div0.bull or div1.bull or div2.bull or div3.bull or div4.bull or div5.bull;
+def bearDivActive = div0.bear
+    or (divergenceTriggerWindow >= 1 and div1.bear)
+    or (divergenceTriggerWindow >= 2 and div2.bear)
+    or (divergenceTriggerWindow >= 3 and div3.bear)
+    or (divergenceTriggerWindow >= 4 and div4.bear)
+    or (divergenceTriggerWindow >= 5 and div5.bear);
+def bullDivActive = div0.bull
+    or (divergenceTriggerWindow >= 1 and div1.bull)
+    or (divergenceTriggerWindow >= 2 and div2.bull)
+    or (divergenceTriggerWindow >= 3 and div3.bull)
+    or (divergenceTriggerWindow >= 4 and div4.bull)
+    or (divergenceTriggerWindow >= 5 and div5.bull);
 
 plot TSI = tsi;
 plot Signal = tsiSignal;
