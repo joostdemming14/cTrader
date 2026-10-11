@@ -61,7 +61,7 @@ input requireBenchmarkFilter = no;  # cTrader default: OFF
 input benchmarkSymbol = "SPY";
 input benchmarkSmaPeriod = 50;
 input benchmarkBufferAtr = 0.5;
-input requireRvolFilter = no;        # optional volume filter on the confirmation bar (default OFF)
+input requireRvolFilter = yes;       # volume filter on the confirmation bar (default ON; ToS/Schwab volume is real, unlike CFD tick volume)
 input rvolPeriod = 50;               # rvol = Volume / SMA(Volume, rvolPeriod)
 input minRvol = 1.5;
 
