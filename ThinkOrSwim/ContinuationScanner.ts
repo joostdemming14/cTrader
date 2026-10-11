@@ -61,6 +61,9 @@ input requireBenchmarkFilter = no;  # cTrader default: OFF
 input benchmarkSymbol = "SPY";
 input benchmarkSmaPeriod = 50;
 input benchmarkBufferAtr = 0.5;
+input requireRvolFilter = no;        # optional volume filter on the confirmation bar (default OFF)
+input rvolPeriod = 50;               # rvol = Volume / SMA(Volume, rvolPeriod)
+input minRvol = 1.5;
 
 # ---------------- indicator math (Wilder ATR, Blau TSI) ----------------
 def clv = if (high - low) > 0 then (2 * close - high - low) / (high - low) else 0;
@@ -164,6 +167,11 @@ def spyBuffer = benchmarkBufferAtr * spyAtr;
 def spyLongOk = !requireBenchmarkFilter or spyClose >= spySma - spyBuffer;
 def spyShortOk = !requireBenchmarkFilter or spyClose <= spySma + spyBuffer;
 
+
+# ---------------- optional relative-volume filter (confirmation bar) ----------------
+def rvol = volume[lastClosed] / Average(volume, rvolPeriod)[lastClosed];
+def rvolOk = !requireRvolFilter or (!IsNaN(rvol) and rvol >= minRvol);
+
 # ---------------- continuation evaluation at the signal bar ----------------
 def warm = !IsNaN(tsi[sig]) and !IsNaN(ema21[sig]) and !IsNaN(ema50[sig]) and !IsNaN(sma200[sig]) and !IsNaN(atr[sig]) and atr[sig] > 0;
 
@@ -195,5 +203,5 @@ def shortCore =
 def longConfirm = !requireConfirmation or (close[lastClosed] > ema21[lastClosed] and close[lastClosed] > high[sig]);
 def shortConfirm = !requireConfirmation or (close[lastClosed] < ema21[lastClosed] and close[lastClosed] < low[sig]);
 
-plot LongSignal = longCore and longConfirm;
-plot ShortSignal = shortCore and shortConfirm;
+plot LongSignal = longCore and longConfirm and rvolOk;
+plot ShortSignal = shortCore and shortConfirm and rvolOk;

@@ -64,6 +64,9 @@ input requireBenchmarkFilter = no;   # cTrader default: OFF
 input benchmarkSymbol = "SPY";
 input benchmarkSmaPeriod = 50;
 input benchmarkBufferAtr = 0.5;
+input requireRvolFilter = no;        # optional volume filter on the confirmation bar (default OFF)
+input rvolPeriod = 50;               # rvol = Volume / SMA(Volume, rvolPeriod)
+input minRvol = 1.5;
 
 # ---------------- indicator math (Wilder ATR, Blau TSI) ----------------
 def clv = if (high - low) > 0 then (2 * close - high - low) / (high - low) else 0;
@@ -169,6 +172,11 @@ def belowShort = fold k = 1 to extensionWindow with b = 0 do if !IsNaN(close[sig
 def extPctLong = 100.0 * belowLong / (extensionWindow - 1);
 def extPctShort = 100.0 * belowShort / (extensionWindow - 1);
 
+
+# ---------------- optional relative-volume filter (confirmation bar) ----------------
+def rvol = volume[lastClosed] / Average(volume, rvolPeriod)[lastClosed];
+def rvolOk = !requireRvolFilter or (!IsNaN(rvol) and rvol >= minRvol);
+
 # ---------------- reversal evaluation at the signal bar ----------------
 def warm = !IsNaN(tsi[sig]) and !IsNaN(ema21[sig]) and !IsNaN(atr[sig]) and atr[sig] > 0;
 
@@ -192,5 +200,5 @@ def shortCore =
 def longConfirm = !requireConfirmation or close[lastClosed] > high[sig];
 def shortConfirm = !requireConfirmation or close[lastClosed] < low[sig];
 
-plot LongSignal = longCore and longConfirm;
-plot ShortSignal = shortCore and shortConfirm;
+plot LongSignal = longCore and longConfirm and rvolOk;
+plot ShortSignal = shortCore and shortConfirm and rvolOk;
